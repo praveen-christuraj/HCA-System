@@ -16,12 +16,19 @@ Both shapes are validated before anything is written: the tank name must match
 a tank declared on the asset exactly, the numbers must be finite and
 non-negative, no depth may repeat within a tank, and each tank needs at least
 two points or nothing can be interpolated.
+
+Charts are deliberately **not** bound by the 5,000-row master import ceiling
+(owner decision 2026-10-17): a barge or FSO strapping table is routinely
+25,000+ points and must upload in full. The ceiling used here is
+``CALIBRATION_MAX_ROWS`` — far above any real book, and it exists only so a
+runaway file cannot exhaust the container. Set it to ``0`` to lift it.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.config import CALIBRATION_MAX_ROWS, CALIBRATION_MAX_UPLOAD_BYTES
 from app.services.calibration_engine import CalibrationError, CalibrationPoint, normalise_curve
 from app.services.master_import import normalise_header, read_master_import
 from app.utils.units import (
@@ -29,7 +36,10 @@ from app.utils.units import (
     to_canonical_volume,
 )
 
-MAX_CHART_ROWS = 5000
+# Ceiling on calibration *points*, not on file rows: a wide layout expands one
+# file row into one point per tank column. ``0`` means no ceiling.
+MAX_CHART_ROWS = CALIBRATION_MAX_ROWS
+MAX_CHART_UPLOAD_BYTES = CALIBRATION_MAX_UPLOAD_BYTES
 MIN_POINTS_PER_TANK = 2
 
 # Header aliases. Real calibration books label these columns many ways, so the
@@ -198,7 +208,14 @@ def parse_calibration_chart(
     not in that list is an error, because the chart would then describe a
     compartment the asset does not have.
     """
-    table = read_master_import(content, filename)
+    # ``or None`` turns the configured ``0`` (no ceiling) into "read the whole
+    # file", which is what a 25,000-point calibration book needs.
+    table = read_master_import(
+        content,
+        filename,
+        max_rows=MAX_CHART_ROWS or None,
+        max_bytes=MAX_CHART_UPLOAD_BYTES or None,
+    )
     columns = table["columns"]
 
     if not columns:
@@ -462,7 +479,9 @@ def parse_calibration_chart(
                 }
             )
 
-    if len(parsed) > MAX_CHART_ROWS:
+    # The ceiling counts calibration points, not file rows: the wide layout
+    # expands one file row into one point per tank column. ``0`` disables it.
+    if MAX_CHART_ROWS and len(parsed) > MAX_CHART_ROWS:
         errors.append(
             {
                 "row_number": 0,
@@ -471,9 +490,22 @@ def parse_calibration_chart(
                 "dip_value": "",
                 "volume_value": "",
                 "valid": False,
-                "errors": [f"Chart exceeds the {MAX_CHART_ROWS}-row limit"],
+                "errors": [
+                    f"Chart has {len(parsed):,} calibration points, which exceeds the "
+                    f"{MAX_CHART_ROWS:,}-point limit"
+                ],
             }
         )
+
+    # A chart is allowed to be very large, so the per-tank working sets are
+    # released before the caller-facing rows are built. Without this a
+    # 100,000-point upload holds the points, the grouping and the preview rows
+    # at the same time.
+    tanks_found = sorted(by_tank)
+    point_count = len(parsed)
+    tank_count = len(by_tank)
+    by_tank.clear()
+    seen.clear()
 
     preview_rows = [
         {
@@ -489,11 +521,12 @@ def parse_calibration_chart(
         }
         for row in parsed
     ]
+    parsed.clear()
     preview_rows.extend(errors)
     preview_rows.sort(key=lambda item: (item["row_number"], str(item.get("tank_name"))))
 
-    total = len(parsed) + len(errors)
-    valid = len(parsed)
+    total = point_count + len(errors)
+    valid = point_count
     invalid = len(errors)
 
     if invalid:
@@ -502,7 +535,7 @@ def parse_calibration_chart(
         message = "No calibration rows were found in the file."
     else:
         message = (
-            f"{valid} point(s) across {len(by_tank)} tank(s) ready to import "
+            f"{valid} point(s) across {tank_count} tank(s) ready to import "
             f"({dip_unit} -> cm, {volume_unit} -> bbl)"
         )
 
@@ -515,7 +548,7 @@ def parse_calibration_chart(
         valid_rows=valid,
         invalid_rows=invalid,
         rows=preview_rows,
-        tanks_found=sorted(by_tank),
+        tanks_found=tanks_found,
         missing_columns=[],
         message=message,
         implied_dip_unit=implied_dip_unit,

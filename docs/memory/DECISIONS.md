@@ -389,3 +389,34 @@ scoped reference projections. Snapshot measurements and calibration identity sur
 changes. The supporting reference masters and voyage guards ship with entry; detailed tracking,
 comparison reports, task inboxes and correction workflows remain separately planned. See the
 [delivery note](../changes/2026-10-17-operation-entry.md) for the exact boundary and source map.
+
+---
+
+## ADR-021 — Calibration charts are not bound by the master-data import ceiling
+**Date:** 2026-10-17 · **Status:** Accepted (owner request)
+
+**Context.** The chart parser reused the shared master-data reader, so a calibration upload was
+refused above 5,000 rows (`File exceeds the 5000-row import limit.`). That ceiling suits a user
+list or a location master; it does not suit a calibration book. Real barge and FSO strapping tables
+run past 25,000 points, so a legitimate chart could not be uploaded at all. Behind it sat two more
+limits that would have refused the same file: the shared reader's 5 MB, and nginx's default 1 MB
+body size, which answers `413` before the API sees the upload.
+
+**Decision.** Calibration reads with its own ceiling — `CALIBRATION_MAX_ROWS` (default 100,000) and
+`CALIBRATION_MAX_UPLOAD_MB` (default 50 MB), either lifted by setting it to `0` — and
+`read_master_import` accepts `max_rows`/`max_bytes` so master data, users, operation references and
+ticket imports keep 5,000 rows / 5 MB. The ceiling counts calibration **points**, not file rows,
+because the wide layout expands one file row into one point per tank column. The read endpoint uses
+the same ceiling, so a stored chart is never returned truncated while reporting a larger
+`row_count`; `rows_truncated` states which happened. nginx allows 100 MB on `/api/`, above the
+backend's own limit, so a refusal is always reported by the API in its own words.
+
+**Consequences.** A ceiling stays in place — 4× the largest chart described — so a runaway file
+cannot exhaust the container; it is a deployment knob, not a product limit. Large charts are written
+with one bulk statement rather than through the unit of work, and the parser releases its per-tank
+working sets before building the caller's rows: a 100,000-point upload costs 478 MB peak and 3.62 s
+on the SQLite test stack, where the unit-of-work path cost 543 MB and 10.62 s. Lookups load the
+whole chart per request, so a chart at the ceiling resolves in seconds rather than milliseconds —
+acceptable for a custody lookup, and the reason the calibration page does not fetch rows it never
+renders. The chart's PDF export stays bounded by `MAX_EXPORT_ROWS` — a print-grade document cannot
+usefully hold a strapping table — while CSV and XLSX carry every point and say how many.

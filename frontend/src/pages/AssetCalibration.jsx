@@ -281,10 +281,11 @@ function UploadDialog({ asset, reference, onClose, onUploaded }) {
                   </table>
                 </div>
               )}
-              {preview.rows?.length > previewRows.length && (
+              {preview.total_rows > previewRows.length && (
                 <p className="field-help" style={{ marginTop: 6 }}>
-                  Showing {previewRows.length} of {preview.rows.length} rows; the entire chart was
-                  validated.
+                  Showing the first {previewRows.length.toLocaleString()} of{' '}
+                  {preview.total_rows.toLocaleString()} rows — every row in the file was validated,
+                  and the whole chart is saved.
                 </p>
               )}
             </div>
@@ -561,7 +562,10 @@ export default function AssetCalibration() {
     setLoading(true)
     setError('')
     try {
-      setData(await getCalibration(assetId))
+      // Rows are not rendered on this page — only the point counts, the tank
+      // breakdown and the lookups are. A chart can hold tens of thousands of
+      // points, so asking for them would download the whole table for nothing.
+      setData(await getCalibration(assetId, false))
     } catch (loadError) {
       setError(loadError.message || 'Unable to load the calibration chart')
       setData(null)
