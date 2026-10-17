@@ -115,7 +115,7 @@ export default function UserMenu({ loggedInUser, onLogout }) {
               <Icon name="home" size={16} />
               Portfolio dashboard
             </Link>
-            {hasPermission('View Audit Log') && (
+            {hasPermission('audit:read') && (
               <Link
                 to="/audit"
                 role="menuitem"

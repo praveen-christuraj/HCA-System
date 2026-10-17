@@ -19,10 +19,9 @@ def test_admin_login_returns_permissions(client, admin_tokens):
     assert user["username"] == "admin"
     assert user["is_admin"] is True
     assert len(user["permissions"]) >= 20
-    assert any(
-        permission["permission_name"] == "View Audit Log"
-        for permission in user["permissions"]
-    )
+    permission_names = {permission["permission_name"] for permission in user["permissions"]}
+    assert "audit:read" in permission_names
+    assert all(":" in name for name in permission_names)
 
 
 def test_me_requires_a_valid_token(client, admin_headers):

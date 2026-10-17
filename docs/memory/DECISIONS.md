@@ -145,3 +145,40 @@ deployment (ADR-005).
 contract (`DATABASE_URL`, `JWT_SECRET_KEY`, `ENCRYPTION_KEY`, `SEED_ADMIN_*`, `CORS_ORIGINS`).
 Uvicorn must bind `0.0.0.0:$PORT` because Render injects the port. If the start command is ever
 edited in the Render dashboard, the seed step must stay before uvicorn.
+
+---
+
+## ADR-011 — Standard resource/action permissions are provisioned from the page catalog
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** Costing uses standard `resource:action` capabilities; HCA's original User/Role
+permissions were title-based and made exports and page additions inconsistent.
+
+**Decision.** All page access uses the standard `read`, `create`, `update` and `delete` actions
+for a registered resource. Assignment write operations share `assignments:write`. Every new
+page resource is added to `RESOURCE_PERMISSION_DEFINITIONS` in
+`backend/app/utils/default_permissions.py`; startup bootstrap idempotently provisions the
+permissions, so no page ships without its standard catalog entries. Existing title-based grants
+are migrated to the equivalent standard grants before their legacy rows are deactivated.
+
+**Consequences.** Role grants are reusable across pages and API/UI enforcement; exports use
+`read`, imports use `create`, and soft deactivation uses `update`. Dashboard, profile/security,
+audit, security-event and system-health pages use standard resources. Their former named grants
+are migrated to equivalent standard keys and deactivated at bootstrap; no named page permissions
+remain in the active catalog.
+
+---
+
+## ADR-012 — Location assignments are typed hierarchical master data
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** OTMS includes Location Master and Role Location Assignment, but HCA's initial
+schema had no location table and must not store assignment arrays as JSON.
+
+**Decision.** Add a typed `locations` table with a self-referencing optional parent and a typed
+`role_locations` association table with a unique role/location pair. User-to-role assignment
+continues to use HCA's existing `user_roles` table. Locations are soft-deactivated; assignment
+pages replace typed child rows under `assignments:write` and are audited.
+
+**Consequences.** Location hierarchy and role scope can be filtered and joined in SQL; imports
+use bounded CSV/XLSX preview/confirmation and preserve the same typed constraints.

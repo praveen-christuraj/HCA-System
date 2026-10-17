@@ -11,8 +11,10 @@ import {
   StatusTag,
 } from '../components/common/Ui'
 import { logUiAction } from '../utils/actionLogger'
+import { usePermissions } from '../hooks/usePermissions'
 
 export default function Home() {
+  const { isAdmin, hasPermission } = usePermissions()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -33,6 +35,11 @@ export default function Home() {
   useEffect(() => {
     load()
   }, [load])
+
+  const visibleModules = (data?.modules || []).filter((module) =>
+    isAdmin || !module.permission || hasPermission(module.permission),
+  )
+  const canViewAudit = isAdmin || hasPermission('audit:read')
 
   return (
     <div className="page">
@@ -80,7 +87,7 @@ export default function Home() {
             </div>
             <div className="card-body">
               <div className="module-grid">
-                {(data?.modules || []).map((module) => (
+                {visibleModules.map((module) => (
                   <article key={module.key} className="module-card">
                     <div className="module-card-head">
                       <div>
@@ -119,9 +126,9 @@ export default function Home() {
                   Every action is recorded with actor, module, outcome and timestamp.
                 </p>
               </div>
-              <Link to="/audit" className="btn btn-secondary btn-compact">
+              {canViewAudit && <Link to="/audit" className="btn btn-secondary btn-compact">
                 Open audit trail
-              </Link>
+              </Link>}
             </div>
             <div className="card-body flush">
               <div className="table-wrap">

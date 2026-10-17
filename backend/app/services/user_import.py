@@ -141,7 +141,11 @@ def parse_user_import(content: bytes, filename: str, db: Session) -> dict:
         for (value,) in db.query(User.email).all()
     }
     roles = db.query(Role).filter(Role.status == "Active").all()
-    roles_by_name = {role.role_name.strip().lower(): role for role in roles}
+    roles_by_name = {
+        role.role_name.strip().lower(): role
+        for role in roles
+        if role.role_name.strip().casefold() != "admin"
+    }
 
     seen_usernames: set[str] = set()
     seen_emails: set[str] = set()

@@ -40,7 +40,7 @@ export default function AuditTrail() {
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState('')
 
-  const canExport = isAdmin || hasPermission('Export Audit Log')
+  const canExport = isAdmin || hasPermission('audit:read')
 
   const load = useCallback(async () => {
     setLoading(true)

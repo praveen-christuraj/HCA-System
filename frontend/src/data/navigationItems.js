@@ -1,14 +1,15 @@
 /**
- * Top-side navigation (owner rule 3). Groups mirror the module map; every
- * item is permission-filtered. Planned modules link to their honest module
- * dashboard, which states the delivery status.
+ * Permission-filtered top-side navigation (no side navigation).
+ * Resource pages use only standard resource:action keys; assignments are
+ * read with the relevant standard resource read permissions and written with
+ * assignments:write.
  */
 export const navigationItems = [
   {
     label: 'Home',
     path: '/',
     type: 'link',
-    permission: 'View System Dashboard',
+    permission: 'dashboard:read',
   },
   {
     label: 'User Management',
@@ -17,9 +18,20 @@ export const navigationItems = [
       {
         label: 'Module Dashboard',
         path: '/modules/user-management',
-        permission: 'View User Management Dashboard',
+        permission: 'users:read',
       },
-      { label: 'User Master', path: '/users', permission: 'View User' },
+      { label: 'User Master', path: '/users', permission: 'users:read' },
+      { label: 'Role Master', path: '/roles', permission: 'roles:read' },
+      {
+        label: 'Role Permission Assignment',
+        path: '/role-permissions',
+        allPermissions: ['roles:read', 'permissions:read'],
+      },
+      {
+        label: 'User Role Assignment',
+        path: '/user-roles',
+        allPermissions: ['users:read', 'roles:read'],
+      },
     ],
   },
   {
@@ -29,7 +41,13 @@ export const navigationItems = [
       {
         label: 'Module Dashboard',
         path: '/modules/master-data',
-        permission: 'View System Dashboard',
+        permission: 'locations:read',
+      },
+      { label: 'Location Master', path: '/locations', permission: 'locations:read' },
+      {
+        label: 'Role Location Assignment',
+        path: '/role-locations',
+        allPermissions: ['roles:read', 'locations:read'],
       },
     ],
   },
@@ -37,33 +55,21 @@ export const navigationItems = [
     label: 'Business',
     type: 'dropdown',
     items: [
-      {
-        label: 'Module Dashboard',
-        path: '/modules/business',
-        permission: 'View System Dashboard',
-      },
+      { label: 'Module Dashboard', path: '/modules/business', permission: 'dashboard:read' },
     ],
   },
   {
     label: 'Reports',
     type: 'dropdown',
     items: [
-      {
-        label: 'Module Dashboard',
-        path: '/modules/reports',
-        permission: 'View System Dashboard',
-      },
+      { label: 'Module Dashboard', path: '/modules/reports', permission: 'dashboard:read' },
     ],
   },
   {
     label: 'Back-up',
     type: 'dropdown',
     items: [
-      {
-        label: 'Module Dashboard',
-        path: '/modules/backup',
-        permission: 'View System Dashboard',
-      },
+      { label: 'Module Dashboard', path: '/modules/backup', permission: 'dashboard:read' },
     ],
   },
   {
@@ -73,26 +79,27 @@ export const navigationItems = [
       {
         label: 'Module Dashboard',
         path: '/modules/auditing',
-        permission: 'View Auditing Dashboard',
+        permission: 'audit:read',
       },
-      { label: 'Audit Trail', path: '/audit', permission: 'View Audit Log' },
+      { label: 'Audit Trail', path: '/audit', permission: 'audit:read' },
     ],
   },
   {
     label: 'System',
     type: 'dropdown',
     items: [
-      {
-        label: 'Module Dashboard',
-        path: '/modules/system',
-        permission: 'View System Health',
-      },
+      { label: 'Module Dashboard', path: '/modules/system', permission: 'system:read' },
     ],
   },
 ]
 
 export const hiddenRouteLabels = {
   '/users': 'User Master',
+  '/roles': 'Role Master',
+  '/locations': 'Location Master',
+  '/role-permissions': 'Role Permission Assignment',
+  '/role-locations': 'Role Location Assignment',
+  '/user-roles': 'User Role Assignment',
   '/audit': 'Audit Trail',
 }
 

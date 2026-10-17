@@ -7,12 +7,16 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies.permissions import require_any_permission, require_permission
+from app.dependencies.permissions import require_permission
 from app.models import Permission, User
 from app.schemas import PermissionCreate
 from app.services.audit_service import create_audit_log
 from app.services.serializers import permission_to_dict
-from app.utils.default_permissions import ACTION_ORDER, PERMISSION_CATALOG
+from app.utils.default_permissions import (
+    ACTION_ORDER,
+    PERMISSION_CATALOG,
+    STANDARD_PERMISSION_NAMES,
+)
 from app.utils.pagination import paginate_query
 from app.utils.time import utcnow
 
@@ -21,9 +25,7 @@ router = APIRouter(prefix="/permissions", tags=["Permission Master"])
 
 @router.get("/catalog")
 def permission_catalog(
-    user: User = Depends(
-        require_any_permission("View Permission", "View Role Permission Assignment")
-    ),
+    user: User = Depends(require_permission("permissions:read")),
     db: Session = Depends(get_db),
 ):
     """Return the catalog grouped category → module → permissions (with ids)."""
@@ -72,7 +74,7 @@ def list_permissions(
     category: str | None = None,
     module_name: str | None = None,
     status: str | None = None,
-    user: User = Depends(require_permission("View Permission")),
+    user: User = Depends(require_permission("permissions:read")),
     db: Session = Depends(get_db),
 ):
     query = db.query(Permission)
@@ -110,13 +112,19 @@ def list_permissions(
 def create_permission(
     payload: PermissionCreate,
     request: Request,
-    actor: User = Depends(require_permission("Create Permission")),
+    actor: User = Depends(require_permission("permissions:create")),
     db: Session = Depends(get_db),
 ):
+    permission_name = payload.permission_name.strip()
+    if permission_name not in STANDARD_PERMISSION_NAMES:
+        raise HTTPException(
+            status_code=422,
+            detail="Only permissions registered in the standard resource catalog can be created",
+        )
     duplicate = (
         db.query(Permission)
         .filter(
-            func.lower(Permission.permission_name) == payload.permission_name.strip().lower(),
+            func.lower(Permission.permission_name) == permission_name.lower(),
             func.lower(Permission.module_name) == payload.module_name.strip().lower(),
         )
         .first()

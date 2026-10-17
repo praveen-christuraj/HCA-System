@@ -114,7 +114,7 @@ def list_audit_logs(
     actor_username: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    user: User = Depends(require_permission("View Audit Log")),
+    user: User = Depends(require_permission("audit:read")),
     db: Session = Depends(get_db),
 ):
     query = _filtered_query(
@@ -338,7 +338,7 @@ def export_audit_logs(
     actor_username: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    user: User = Depends(require_permission("Export Audit Log")),
+    user: User = Depends(require_permission("audit:read")),
     db: Session = Depends(get_db),
 ):
     filters = {

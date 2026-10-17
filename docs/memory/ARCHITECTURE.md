@@ -76,7 +76,7 @@ FastAPI middleware
   │  mutations/denials that routers did not audit explicitly, sets request id
   ▼
 Router (auth, users, roles, permissions, audit, dashboard)
-  ├─ require_permission("View User") etc. → 403 if missing
+  ├─ require_permission("users:read") etc. → 403 if missing
   ├─ validate payload (Pydantic)
   ├─ service / query layer
   │    ├─ paginated list helper (page, page_size ∈ 20/50/100/200)
@@ -119,7 +119,7 @@ Filters are query parameters (`search`, `status`, `department`, `role_id`, `date
 
 ### Authorization
 
-- Every router declares the permission it needs: `Depends(require_permission("View User"))`.
+- Every router declares a standard capability such as `Depends(require_permission("users:read"))`.
 - `get_user_permissions` unions active permissions across the user's active roles on each
   request. Deactivating a role or permission takes effect immediately.
 - The reserved `Admin` role is identified by role name and bypasses individual permission
@@ -136,8 +136,14 @@ permissions by module and is used by:
 - the standalone seed script,
 - `GET /api/permissions/catalog` for the RBAC matrix UI.
 
-Naming: `View <Entity>`, `Create <Entity>`, `Edit <Entity>`, `Delete <Entity>`, plus explicit
-workflow verbs (`Export <Entity>`, `Approve <Entity>`, …).
+Page permissions use only standard `resource:action` keys (`read`, `create`, `update`,
+`delete`). `assignments:write` is the shared write capability for cross-page assignment
+modules. Every page resource must be added to `RESOURCE_PERMISSION_DEFINITIONS` before its
+API/UI is implemented; startup bootstrap provisions the catalog idempotently. List/detail/export
+use `read`, create/import use `create`, and edits/soft-deactivation use `update`. Dashboard,
+profile, audit, security and system pages are registered as standard resources too. Bootstrap
+migrates existing title-based grants to their standard keys before deactivating the old rows;
+no named page permissions remain in the active catalog.
 
 ---
 

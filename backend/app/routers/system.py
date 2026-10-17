@@ -31,7 +31,7 @@ def health(db: Session = Depends(get_db)):
 
 @router.get("/system/status")
 def system_status(
-    user: User = Depends(require_permission("View System Health")),
+    user: User = Depends(require_permission("system:read")),
     db: Session = Depends(get_db),
 ):
     db.execute(text("SELECT 1"))

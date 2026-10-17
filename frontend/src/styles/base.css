@@ -1040,3 +1040,329 @@ table.data-table tbody tr:last-child td {
     scroll-behavior: auto !important;
   }
 }
+
+/* ------------------------------------------------------ master & RBAC UI */
+.form-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.form-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--divider);
+}
+
+.checkbox-field,
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.checkbox-field input,
+.checkbox-inline input,
+.role-option input,
+.permission-option input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+}
+
+.role-options,
+.location-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+}
+
+.role-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.role-option:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.role-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.role-option strong {
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.role-option small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.assignment-layout {
+  display: grid;
+  grid-template-columns: minmax(230px, 290px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.assignment-role-panel,
+.assignment-content-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.assignment-role-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.assignment-role-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--divider);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.assignment-role-option:last-child {
+  border-bottom: 0;
+}
+
+.assignment-role-option:hover,
+.assignment-role-option.is-selected {
+  background: var(--surface-2);
+}
+
+.assignment-role-option.is-selected {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.assignment-role-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.assignment-role-option strong {
+  font-size: 13px;
+}
+
+.assignment-role-option small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.assignment-header {
+  align-items: center;
+}
+
+.assignment-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.permission-modules {
+  padding: 4px 18px 18px;
+}
+
+.permission-category + .permission-category {
+  margin-top: 20px;
+}
+
+.permission-category-title {
+  margin: 10px 0;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.permission-module {
+  margin-top: 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+}
+
+.permission-module-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--divider);
+}
+
+.permission-module-head h3 {
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.permission-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+  gap: 1px;
+  background: var(--divider);
+}
+
+.permission-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 11px 12px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.permission-option.is-checked {
+  background: var(--surface-2);
+}
+
+.permission-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.permission-copy strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.permission-copy small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.permission-action-tag {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.assignment-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--divider);
+  background: var(--surface-2);
+}
+
+.assignment-select-all {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.location-chip-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.location-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 250px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.location-chip small {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+@media (max-width: 900px) {
+  .assignment-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .assignment-role-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    max-height: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .form-grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .assignment-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .assignment-footer .toolbar-group {
+    width: 100%;
+  }
+}

@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import MAX_EXPORT_ROWS
 from app.database import get_db
-from app.dependencies.permissions import require_permission
+from app.dependencies.permissions import (
+    get_user_permissions,
+    is_admin_user,
+    require_permission,
+    user_has_permission,
+)
 from app.models import Role, User, UserRole
 from app.schemas import AdminResetPasswordRequest, UserCreate, UserUpdate
 from app.services.audit_service import create_audit_log
@@ -90,7 +95,7 @@ def list_users(
     date_to: date | None = None,
     sort_by: str = "created_at",
     sort_dir: str = "desc",
-    user: User = Depends(require_permission("View User")),
+    user: User = Depends(require_permission("users:read")),
     db: Session = Depends(get_db),
 ):
     query = _apply_filters(
@@ -133,7 +138,7 @@ def export_users(
     role_id: int | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    actor: User = Depends(require_permission("Export User")),
+    actor: User = Depends(require_permission("users:read")),
     db: Session = Depends(get_db),
 ):
     query = _apply_filters(
@@ -253,7 +258,7 @@ def import_users(
     request: Request,
     file: UploadFile = File(...),
     confirm: bool = Form(False),
-    actor: User = Depends(require_permission("Create User")),
+    actor: User = Depends(require_permission("users:create")),
     db: Session = Depends(get_db),
 ):
     """Preview or commit a XLSX/CSV user import.
@@ -264,7 +269,39 @@ def import_users(
     """
     content = file.file.read()
     parsed = parse_user_import(content, file.filename or "", db)
+    parsed_rows = parsed.get("_parsed_rows", [])
+    role_ids = {role_id for row in parsed_rows for role_id in row.get("_role_ids", [])}
+    roles_by_id = {role.id: role for role in db.query(Role).filter(Role.id.in_(role_ids)).all()} if role_ids else {}
+    if not is_admin_user(actor, db):
+        actor_permissions = get_user_permissions(db, actor)
+        for row in parsed_rows:
+            if not row.get("_role_ids"):
+                continue
+            if any(
+                permission.status == "Active" and permission.permission_name not in actor_permissions
+                for role_id in row["_role_ids"]
+                for permission in roles_by_id[role_id].permissions
+            ):
+                row["errors"].append("Assigned role contains permissions you do not hold")
+                row["valid"] = False
+        parsed["valid_rows"] = sum(1 for row in parsed_rows if row["valid"])
+        parsed["invalid_rows"] = len(parsed_rows) - parsed["valid_rows"]
+        parsed["rows"] = [
+            {key: value for key, value in row.items() if not key.startswith("_")}
+            for row in parsed_rows
+        ]
+        parsed["message"] = (
+            f"{parsed['valid_rows']} row(s) ready to import"
+            if parsed["valid_rows"]
+            else "No valid rows to import"
+        )
     preview = {key: value for key, value in parsed.items() if not key.startswith("_")}
+    has_role_assignments = any(row.get("_role_ids") for row in parsed_rows)
+    if has_role_assignments and not user_has_permission(db, actor, "assignments:write"):
+        raise HTTPException(
+            status_code=403,
+            detail="assignments:write is required when an import assigns roles",
+        )
 
     if parsed.get("missing_columns") or parsed["total_rows"] == 0:
         _audit_import(db, request, actor, file.filename, parsed, outcome="Failure",
@@ -314,7 +351,7 @@ def import_users(
 @router.get("/{user_id}")
 def get_user(
     user_id: int,
-    current_user: User = Depends(require_permission("View User")),
+    current_user: User = Depends(require_permission("users:read")),
     db: Session = Depends(get_db),
 ):
     target = _base_query(db).filter(User.id == user_id).first()
@@ -324,6 +361,8 @@ def get_user(
 
 
 def _resolve_roles(db: Session, role_ids: list[int]) -> list[Role]:
+    if len(role_ids) != len(set(role_ids)):
+        raise HTTPException(status_code=422, detail="Duplicate role IDs are not allowed")
     if not role_ids:
         return []
     roles = db.query(Role).filter(Role.id.in_(role_ids)).all()
@@ -335,6 +374,8 @@ def _resolve_roles(db: Session, role_ids: list[int]) -> list[Role]:
             status_code=422,
             detail="Inactive roles cannot be assigned: " + ", ".join(inactive),
         )
+    if any(role.role_name.strip().casefold() == "admin" for role in roles):
+        raise HTTPException(status_code=403, detail="The reserved Admin role cannot be assigned through User Master")
     return roles
 
 
@@ -342,7 +383,7 @@ def _resolve_roles(db: Session, role_ids: list[int]) -> list[Role]:
 def create_user(
     payload: UserCreate,
     request: Request,
-    actor: User = Depends(require_permission("Create User")),
+    actor: User = Depends(require_permission("users:create")),
     db: Session = Depends(get_db),
 ):
     username = payload.username.strip()
@@ -354,7 +395,17 @@ def create_user(
         raise HTTPException(status_code=409, detail="Email already exists")
 
     validate_password_policy(payload.password)
+    if payload.role_ids and not user_has_permission(db, actor, "assignments:write"):
+        raise HTTPException(status_code=403, detail="assignments:write is required to assign roles during user creation")
     roles = _resolve_roles(db, payload.role_ids)
+    if roles and not is_admin_user(actor, db):
+        actor_permissions = get_user_permissions(db, actor)
+        if any(
+            permission.status == "Active" and permission.permission_name not in actor_permissions
+            for role in roles
+            for permission in role.permissions
+        ):
+            raise HTTPException(status_code=403, detail="You cannot assign a role with permissions you do not hold")
 
     new_user = User(
         full_name=payload.full_name.strip(),
@@ -407,12 +458,14 @@ def update_user(
     user_id: int,
     payload: UserUpdate,
     request: Request,
-    actor: User = Depends(require_permission("Edit User")),
+    actor: User = Depends(require_permission("users:update")),
     db: Session = Depends(get_db),
 ):
     target = _base_query(db).filter(User.id == user_id).first()
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
+    if is_admin_user(target, db) and not is_admin_user(actor, db):
+        raise HTTPException(status_code=403, detail="Only the reserved administrator can edit this account")
 
     old_status = target.status
     changes: list[str] = []
@@ -446,11 +499,25 @@ def update_user(
     if payload.status is not None:
         if target.id == actor.id and payload.status != "Active":
             raise HTTPException(status_code=422, detail="You cannot deactivate your own account")
+        if is_admin_user(target, db) and payload.status != "Active":
+            raise HTTPException(status_code=403, detail="The reserved administrator account cannot be deactivated")
+        if payload.status not in {"Active", "Inactive"}:
+            raise HTTPException(status_code=422, detail="Status must be Active or Inactive")
         target.status = payload.status
         changes.append("status")
 
     if payload.role_ids is not None:
+        if not user_has_permission(db, actor, "assignments:write"):
+            raise HTTPException(status_code=403, detail="assignments:write is required to change user roles")
         roles = _resolve_roles(db, payload.role_ids)
+        if not is_admin_user(actor, db):
+            actor_permissions = get_user_permissions(db, actor)
+            if any(
+                permission.status == "Active" and permission.permission_name not in actor_permissions
+                for role in roles
+                for permission in role.permissions
+            ):
+                raise HTTPException(status_code=403, detail="You cannot assign a role with permissions you do not hold")
         db.query(UserRole).filter(UserRole.user_id == target.id).delete(
             synchronize_session=False
         )
@@ -485,12 +552,14 @@ def admin_reset_password(
     user_id: int,
     payload: AdminResetPasswordRequest,
     request: Request,
-    actor: User = Depends(require_permission("Edit User")),
+    actor: User = Depends(require_permission("users:update")),
     db: Session = Depends(get_db),
 ):
     target = db.query(User).filter(User.id == user_id).first()
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
+    if is_admin_user(target, db) and not is_admin_user(actor, db):
+        raise HTTPException(status_code=403, detail="Only the reserved administrator can reset this account")
 
     validate_password_policy(payload.new_password)
     target.password_hash = hash_password(payload.new_password)
@@ -523,7 +592,7 @@ def admin_reset_password(
 def deactivate_user(
     user_id: int,
     request: Request,
-    actor: User = Depends(require_permission("Delete User")),
+    actor: User = Depends(require_permission("users:update")),
     db: Session = Depends(get_db),
 ):
     target = db.query(User).filter(User.id == user_id).first()
@@ -531,6 +600,8 @@ def deactivate_user(
         raise HTTPException(status_code=404, detail="User not found")
     if target.id == actor.id:
         raise HTTPException(status_code=422, detail="You cannot deactivate your own account")
+    if is_admin_user(target, db):
+        raise HTTPException(status_code=403, detail="The reserved administrator account cannot be deactivated")
 
     old_status = target.status
     target.status = "Inactive"
@@ -558,7 +629,7 @@ def deactivate_user(
 @router.get("/{user_id}/roles")
 def user_roles(
     user_id: int,
-    current_user: User = Depends(require_permission("View User Role Assignment")),
+    current_user: User = Depends(require_permission("users:read")),
     db: Session = Depends(get_db),
 ):
     target = db.query(User).filter(User.id == user_id).first()

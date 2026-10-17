@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.models import AuditLog, Permission, Role, User
+from app.models import AuditLog, Location, Permission, Role, User
 
 
 def role_to_dict(role: Role) -> dict:
@@ -11,6 +11,25 @@ def role_to_dict(role: Role) -> dict:
         "role_name": role.role_name,
         "description": role.description or "",
         "status": role.status,
+        "created_at": role.created_at,
+        "updated_at": role.updated_at,
+    }
+
+
+def location_to_dict(location: Location) -> dict:
+    parent = location.parent_location
+    return {
+        "id": location.id,
+        "location_name": location.location_name,
+        "location_code": location.location_code,
+        "location_type": location.location_type,
+        "parent_location_id": location.parent_location_id,
+        "parent_location_name": parent.location_name if parent else "",
+        "parent_location_code": parent.location_code if parent else "",
+        "description": location.description or "",
+        "status": location.status,
+        "created_at": location.created_at,
+        "updated_at": location.updated_at,
     }
 
 

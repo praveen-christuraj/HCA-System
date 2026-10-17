@@ -168,10 +168,11 @@ def test_user_export_contains_headers(client, admin_headers):
     assert "admin" in text
 
 
-def test_module_dashboard_reports_planned_status(client, admin_headers):
+def test_module_dashboard_reports_location_foundation(client, admin_headers):
     response = client.get("/api/dashboard/modules/master-data", headers=admin_headers)
     assert response.status_code == 200
     payload = response.json()
-    assert payload["module"]["status"] == "Planned"
-    assert payload["planned_items"]
-    assert payload["kpis"] == []
+    assert payload["module"]["status"] == "Foundation"
+    assert payload["module"]["permission"] == "locations:read"
+    assert payload["kpis"]
+    assert payload["quick_links"]
