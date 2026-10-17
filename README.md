@@ -32,7 +32,7 @@ docker compose logs backend | grep -A3 "ADMIN CREDENTIALS"
 
 ## Cloud deployment (Vercel + Render + Supabase)
 
-See [`DEPLOY_CLOUD.md`](DEPLOY_CLOUD.md) for the provider setup, environment variables, secure database configuration, deployment steps, and verification. `render.yaml` defines the Render API service and `vercel.json` configures SPA fallback. The existing Dockerfiles and Docker Compose deployment are intentionally retained unchanged.
+See [`DEPLOY_CLOUD.md`](DEPLOY_CLOUD.md) for the provider setup, environment variables, secure database configuration, deployment steps, and verification. `render.yaml` deploys the API on Render's **native Python 3 runtime** — build `pip install -r requirements.txt`, start `python3 -m app.seed_admin && python3 -m uvicorn app.main:app --host 0.0.0.0 --port $PORT` — so no Dockerfile is used on Render, and `vercel.json` configures SPA fallback. The existing Dockerfiles and Docker Compose deployment are intentionally retained unchanged.
 
 ## Local development (no Docker)
 

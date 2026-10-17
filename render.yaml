@@ -1,13 +1,18 @@
-# Render Blueprint: deploy the FastAPI service from the existing backend Dockerfile.
+# Render Blueprint: deploy the FastAPI service on Render's native Python 3 runtime.
+# No Dockerfile is used on Render. The build installs backend/requirements.txt and the
+# start command runs plain python3: idempotent seed first, then uvicorn on $PORT.
 # Set secrets and DATABASE_URL in the Render dashboard after creating the service.
 services:
   - type: web
     name: hca-system-api
-    runtime: docker
+    env: python
     rootDir: backend
-    dockerfilePath: ./backend/Dockerfile
+    buildCommand: pip install -r requirements.txt
+    startCommand: 'python3 -m app.seed_admin && python3 -m uvicorn app.main:app --host 0.0.0.0 --port $PORT'
     healthCheckPath: /api/health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
       - key: ENVIRONMENT
         value: production
       - key: BOOTSTRAP_ADMIN_ON_STARTUP
