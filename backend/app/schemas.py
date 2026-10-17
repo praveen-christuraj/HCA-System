@@ -331,3 +331,67 @@ class OperationUpdate(BaseModel):
     sort_order: Optional[int] = Field(default=None, ge=0, le=100000)
     description: Optional[str] = Field(default=None, max_length=2000)
     status: Optional[Literal["Active", "Inactive"]] = None
+
+
+# ---------------------------------------------------------------------------
+# Business: Operation Entry
+#
+# The ``payload`` objects on these schemas are the fixed OTMS module payloads
+# (tank_gauging_payload, multi_tank_payload, ...) used as-is for transport.
+# Persistence splits them into typed columns and child tables (rule 4).
+# ---------------------------------------------------------------------------
+class OperationEntryCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    operation_type_code: str = Field(min_length=1, max_length=40)
+    payload_code: Optional[str] = Field(default=None, max_length=40)
+    operation_id: int = Field(ge=1)
+    asset_id: int = Field(ge=1)
+    location_id: int = Field(ge=1)
+    destination_location_id: Optional[int] = Field(default=None, ge=1)
+    sender_location_id: Optional[int] = Field(default=None, ge=1)
+    receiver_location_id: Optional[int] = Field(default=None, ge=1)
+    linked_ticket_id: Optional[int] = Field(default=None, ge=1)
+    barge_event_type: Optional[Literal["LOAD_1", "LOAD_2_TOPUP", "UNLOAD", "STS"]] = None
+    convoy_number: Optional[str] = Field(default=None, max_length=50)
+    operation_date: date
+    operation_start_datetime: Optional[datetime] = None
+    operation_end_datetime: Optional[datetime] = None
+    product_name: Optional[str] = Field(default=None, max_length=150)
+    remarks: Optional[str] = Field(default=None, max_length=4000)
+    payload: dict[str, Any]
+
+
+class OperationEntryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    version: int = Field(ge=1)
+    operation_id: Optional[int] = Field(default=None, ge=1)
+    asset_id: Optional[int] = Field(default=None, ge=1)
+    location_id: Optional[int] = Field(default=None, ge=1)
+    destination_location_id: Optional[int] = Field(default=None, ge=1)
+    sender_location_id: Optional[int] = Field(default=None, ge=1)
+    receiver_location_id: Optional[int] = Field(default=None, ge=1)
+    barge_event_type: Optional[Literal["LOAD_1", "LOAD_2_TOPUP", "UNLOAD", "STS"]] = None
+    convoy_number: Optional[str] = Field(default=None, max_length=50)
+    operation_date: Optional[date] = None
+    operation_start_datetime: Optional[datetime] = None
+    operation_end_datetime: Optional[datetime] = None
+    product_name: Optional[str] = Field(default=None, max_length=150)
+    remarks: Optional[str] = Field(default=None, max_length=4000)
+    payload: Optional[dict[str, Any]] = None
+
+
+class OperationEntryStatusChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1)
+    remarks: Optional[str] = Field(default=None, max_length=2000)
+    review_confirmed: bool = False
+
+
+class OperationEntryCalculateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    operation_type_code: str = Field(min_length=1, max_length=40)
+    payload_code: Optional[str] = Field(default=None, max_length=40)
+    linked_ticket_id: Optional[int] = Field(default=None, ge=1)
+    asset_id: int = Field(ge=1)
+    location_id: int = Field(ge=1)
+    payload: dict[str, Any]

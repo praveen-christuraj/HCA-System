@@ -20,6 +20,8 @@ from app.utils.time import utcnow
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 PATH_MODULES = [
+    ("/api/operation-entries", "Operation Entry", "Data Change"),
+    ("/api/operation-references", "Operation References", "Data Change"),
     ("/api/auth", "Authentication", "Authentication"),
     ("/api/users", "User Master", "Data Change"),
     ("/api/roles", "Role Master", "Data Change"),

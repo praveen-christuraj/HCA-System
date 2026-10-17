@@ -5,10 +5,10 @@ additional logic, following the permanent project memory in [`docs/memory/`](doc
 
 - Architecture: FastAPI + SQLAlchemy + PostgreSQL, React + Vite, JWT auth, RBAC, audited by
   default, top-side navigation, navy/white enterprise UI.
-- Current increment: **v0.1 — authenticated foundation, mirrored login page, module dashboards,
-  User Master (list, filters, detail, CSV/XLSX import, CSV/XLSX/PDF export), Asset Master and
-  Calibration, Audit Trail, roles/permissions APIs and named Permission Presets (up to 20 reusable
-  permission sets applied to roles in replace/add mode), all audited and permission-gated.**
+- Current increment: **authenticated foundation; user/role/location/permission masters and
+  presets; assets, calibration and prime mover links; fixed Operation Types/Operation Master;
+  and one-page Operation Entry with OTMS payloads, live calculations, independent creation /
+  review / submission / approval controls, typed records, reference masters, imports and exports.**
 - Honest delivery status: [`docs/memory/MODULES.md`](docs/memory/MODULES.md).
 
 ## Quick start with Docker (OTMS deployment method)
@@ -63,6 +63,22 @@ the preview origin works without CORS changes.
 Default local credentials when the environment above is used: `admin` / `Admin@12345`. Import
 users from User Master with the CSV template in the import dialog; every file is validated
 row-by-row before anything is written.
+
+## Operation Entry
+
+Open **Business → Operation Entry**. There is no Operation Template Master to customize:
+Tank, Barge, Shuttle, FSO, Tanker Trailer and Flowmeter use their fixed OTMS payloads directly.
+Prime Mover details come from the trailer's active link. Fixed Vessel Cycle and Stock Movement
+alternatives are also available for Shuttle and FSO.
+
+Configure active locations/assets/operations and actual calibration charts first. Under
+**Configurations → Operation References**, supply Table 11 factors, meter configuration and
+permanent seals where needed, and optionally set additional workflow policies. Table 11 factors
+are never fabricated. Review and submission permissions are separate from ticket creation.
+
+See [`docs/changes/2026-10-17-operation-entry.md`](docs/changes/2026-10-17-operation-entry.md)
+for source parity, API/RBAC details, setup, verification and the boundary with still-planned
+tracking/report modules.
 
 ## Tests and build
 

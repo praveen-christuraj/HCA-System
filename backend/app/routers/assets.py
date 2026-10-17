@@ -270,18 +270,19 @@ def _ensure_location_scope(db: Session, user: User, location_id: int | None) -> 
 
 
 def _apply_tanks(asset: Asset, tanks: list[dict]) -> None:
-    """Replace an asset's tank list, keeping calibration rows consistent."""
-    for tank in list(asset.tanks):
-        asset.tanks.remove(tank)
-    for tank in tanks:
-        asset.tanks.append(
-            AssetTank(
-                tank_name=tank["tank_name"],
-                tank_code=tank["tank_code"],
-                sort_order=tank["sort_order"],
-                description=tank["description"],
-            )
-        )
+    """Reconcile by tank identity; adding a compartment must not delete chart/seal FKs."""
+    existing = {tank.tank_name.casefold(): tank for tank in asset.tanks}
+    wanted = {tank["tank_name"].casefold() for tank in tanks}
+    for key, tank in existing.items():
+        if key not in wanted:
+            asset.tanks.remove(tank)
+    for values in tanks:
+        tank = existing.get(values["tank_name"].casefold())
+        if tank is None:
+            tank = AssetTank()
+            asset.tanks.append(tank)
+        for field in ("tank_name", "tank_code", "sort_order", "description"):
+            setattr(tank, field, values[field])
 
 
 def _asset_summary(asset: Asset) -> str:
@@ -939,6 +940,12 @@ def update_asset(
         existing_names = {tank.tank_name.casefold() for tank in asset.tanks}
         new_names = {tank["tank_name"].casefold() for tank in tanks}
         removed = existing_names - new_names
+        if removed:
+            from app.models import BargeSealMaster
+            referenced = {seal.tank_id for seal in db.query(BargeSealMaster).filter_by(asset_id=asset.id)}
+            lost_seals = [tank.tank_name for tank in asset.tanks if tank.id in referenced and tank.tank_name.casefold() in removed]
+            if lost_seals:
+                raise HTTPException(422, "Tank(s) " + ", ".join(lost_seals) + " are referenced by Barge Seal Master. Reassign those references before removing tanks.")
         if removed and asset.calibration_table:
             calibrated_tanks = {
                 (row.tank.tank_name.casefold() if row.tank else "")

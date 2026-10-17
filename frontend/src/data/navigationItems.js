@@ -78,13 +78,15 @@ export const navigationItems = [
       },
       { label: 'Operation Types', path: '/operation-types', permission: 'operation_types:read' },
       { label: 'Operation Master', path: '/operations', permission: 'operations:read' },
+      { label: 'Operation References', path: '/operation-references', anyPermission: ['operation_references:read', 'operation_policies:read', 'operation_voyages:read'] },
     ],
   },
   {
     label: 'Business',
     type: 'dropdown',
     items: [
-      { label: 'Module Dashboard', path: '/modules/business', permission: 'dashboard:read' },
+      { label: 'Module Dashboard', path: '/modules/business', permission: 'operation_entries:read' },
+      { label: 'Operation Entry', path: '/operation-entry', permission: 'operation_entries:read' },
     ],
   },
   {
@@ -135,6 +137,8 @@ export const hiddenRouteLabels = {
   '/prime-mover-tanker-links': 'Prime Mover-Tanker Link',
   '/operation-types': 'Operation Types',
   '/operations': 'Operation Master',
+  '/operation-entry': 'Operation Entry',
+  '/operation-references': 'Operation References',
   '/audit': 'Audit Trail',
 }
 

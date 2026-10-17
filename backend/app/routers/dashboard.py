@@ -23,6 +23,7 @@ from app.models import (
     AuditLog,
     Location,
     Operation,
+    OperationEntry,
     PasswordResetRequest,
     Permission,
     PermissionPreset,
@@ -33,6 +34,7 @@ from app.models import (
 )
 from app.config import MAX_PERMISSION_PRESETS
 from app.services.serializers import audit_to_dict, user_to_dict
+from app.services.operation_entry_access import scoped_entries
 from app.utils.asset_types import PRIME_MOVER, TANKER_TRAILER, asset_type_catalog
 from app.utils.operation_types import OPERATION_CATEGORY_CODES, operation_type_catalog
 from app.utils.time import utcnow
@@ -63,11 +65,13 @@ CONFIGURATION_MODULES = (
     "Operation Master",
 )
 
+BUSINESS_MODULES = ("Operation Entry",)
+
 MODULE_PERMISSIONS = {
     "user-management": "users:read",
     "master-data": "assets:read",
     "configurations": "operation_types:read",
-    "business": "dashboard:read",
+    "business": "operation_entries:read",
     "reports": "dashboard:read",
     "backup": "dashboard:read",
     "auditing": "audit:read",
@@ -112,6 +116,19 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
     )
     active_operations = (
         db.query(func.count(Operation.id)).filter(Operation.status == "Active").scalar() or 0
+    )
+    entry_total = scoped_entries(db, user, party=True).with_entities(func.count(OperationEntry.id)).scalar() or 0
+    entry_drafts = (
+        scoped_entries(db, user, party=True).with_entities(func.count(OperationEntry.id))
+        .filter(OperationEntry.status.in_(["Draft", "Rejected"]))
+        .scalar()
+        or 0
+    )
+    entry_submitted = (
+        scoped_entries(db, user, party=True).with_entities(func.count(OperationEntry.id))
+        .filter(OperationEntry.status == "Submitted")
+        .scalar()
+        or 0
     )
 
     return [
@@ -170,14 +187,20 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
         {
             "key": "business",
             "name": "Business Operations",
-            "status": "Planned",
+            "status": "Available",
             "description": (
-                "Operation entry, transaction workflow, tank and vessel operations, "
-                "export operations and movement tracking."
+                "Operation Entry for every operation type and asset type on one page, "
+                "with fixed module payloads, live quantity calculation and ticket "
+                "submission, review and approval. Detailed tracking reports and stock "
+                "reconciliation dashboards remain planned."
             ),
             "path": "/modules/business",
-            "permission": "dashboard:read",
-            "metrics": [],
+            "permission": "operation_entries:read",
+            "metrics": [
+                {"label": "Operation entries", "value": entry_total},
+                {"label": "Editable (Draft/Rejected)", "value": entry_drafts},
+                {"label": "Submitted", "value": entry_submitted},
+            ],
         },
         {
             "key": "reports",
@@ -585,10 +608,71 @@ def module_dashboard(
                 "permission": "operation_types:read",
             },
             {"label": "Operation Master", "path": "/operations", "permission": "operations:read"},
+            {"label": "Operation References", "path": "/operation-references", "permission": "operation_references:read"},
             {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
         ]
         activity_query = db.query(AuditLog).filter(
             AuditLog.module_name.in_(CONFIGURATION_MODULES)
+        )
+    elif module_key == "business":
+        entry_total = scoped_entries(db, user, party=True).with_entities(func.count(OperationEntry.id)).scalar() or 0
+        entry_drafts = (
+            scoped_entries(db, user, party=True).with_entities(func.count(OperationEntry.id))
+            .filter(OperationEntry.status.in_(["Draft", "Rejected"]))
+            .scalar()
+            or 0
+        )
+        entry_submitted = (
+            scoped_entries(db, user, party=True).with_entities(func.count(OperationEntry.id))
+            .filter(OperationEntry.status == "Submitted")
+            .scalar()
+            or 0
+        )
+        entry_today = (
+            scoped_entries(db, user, party=True).with_entities(func.count(OperationEntry.id))
+            .filter(OperationEntry.created_at >= today_start)
+            .scalar()
+            or 0
+        )
+        kpis = [
+            {"label": "Operation entries", "value": entry_total, "context": "All tickets"},
+            {"label": "Editable", "value": entry_drafts, "context": "Draft and Rejected"},
+            {"label": "Submitted", "value": entry_submitted, "context": "Awaiting decision"},
+            {"label": "Created today", "value": entry_today, "context": "Since midnight UTC"},
+        ]
+        status_rows = (
+            scoped_entries(db, user, party=True).with_entities(OperationEntry.status, func.count(OperationEntry.id))
+            .group_by(OperationEntry.status)
+            .all()
+        )
+        tone_by_status = {
+            "Draft": "info",
+            "Submitted": "warning",
+            "Approved": "success",
+            "Rejected": "danger",
+            "Cancelled": "neutral",
+        }
+        breakdown = [
+            {
+                "label": status,
+                "value": count,
+                "tone": tone_by_status.get(status, "neutral"),
+            }
+            for status, count in status_rows
+        ]
+        quick_links = [
+            {
+                "label": "Operation Entry",
+                "path": "/operation-entry",
+                "permission": "operation_entries:read",
+            },
+            {"label": "Operation Master", "path": "/operations", "permission": "operations:read"},
+            {"label": "Asset Calibration", "path": "/asset-calibration", "permission": "assets:read"},
+            {"label": "Operation References", "path": "/operation-references", "permission": "operation_references:read"},
+        ]
+        activity_query = db.query(AuditLog).filter(
+            AuditLog.module_name.in_(BUSINESS_MODULES),
+            AuditLog.entity_id.in_(scoped_entries(db, user, party=True).with_entities(OperationEntry.id)),
         )
     elif module_key == "auditing":
         audit_total = db.query(func.count(AuditLog.id)).scalar() or 0
