@@ -5,6 +5,32 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-17 — User Management regrouping; Asset Master and Asset Calibration
+
+**Note:** [`changes/2026-10-17-asset-master-and-calibration.md`](changes/2026-10-17-asset-master-and-calibration.md)
+
+| Area | Delivered |
+| --- | --- |
+| Navigation | Location Master and Role Location Assignment moved under User Management, ordered User Master, Role Master, Location Master, Role Permission Assignment, Role Location Assignment, User Role Assignment. The `locations` permission moved to the User Management catalog category; bootstrap migrates existing rows. Master Data Management is now the asset module, gated by `assets:read`. |
+| Asset Master | Hard-coded catalog of seven asset types (Storage Tank, Barge, Shuttle Vessel, FSO, Prime Mover, Tanker Trailer, Flowmeter) with no `asset_types` table. Assets are asset-type scoped with `Local`/`Global` scope — Local requires an active location, Global carries none. Tanks are declared with the asset in a typed child table. CRUD, filters, date range, CSV/XLSX import preview-and-commit, CSV/XLSX/PDF export, soft deactivation. |
+| Asset Calibration | Charts are always three columns (tank name, dip/ullage, volume) — the OTMS template column designer is gone. Dip/ullage accepted in cm, mm or m; volume in litres, kilolitres or barrels; converted once into canonical **cm** and **bbl** with the supplied values retained. Long and wide (printed calibration book) layouts both accepted. One active chart per asset; replacement is audited with the row count and chart name it replaced. |
+| Interpolation | Server-side engine. 2D is depth → volume within one tank; 3D resolves the tank name exactly first, then runs the 2D curve, so a barge's `2P` can never return `2S`'s volume. Every result carries `method`, bracketing points, `in_range` and warnings. Out-of-range readings are refused by default; clamping is opt-in, flagged, and capped at 5 cm outside the certified range. Single and batch lookup endpoints. |
+| Validation | Tank name must match a tank declared on the asset; no repeated depth per tank; at least two points per tank; duplicate depths with differing volumes rejected; monotonicity reported per basis (dip rises with volume, ullage falls). Prime Mover and Flowmeter cannot require calibration; a calibrated asset must declare a tank; a tank with calibration rows cannot be removed. |
+| RBAC / audit | New `assets` resource with standard `read`/`create`/`update`/`delete`. Asset location scoping reuses Role Location Assignment for non-admin users. Every create, update, deactivation, import, export, chart upload, chart delete and interpolation is audited. |
+| Project memory | ADR-013 to ADR-017 record the regrouping, the hard-coded asset types, tank declaration, the fixed three-column chart shape with canonical units, and the interpolation provenance rule. |
+
+**Verification**
+
+- `cd backend && ./.venv/bin/python -m pytest -q` → `70 passed, 1 warning` (28 pre-existing + 42 new, including four XLSX upload tests
+  and location-scope enforcement).
+- `cd frontend && npm run build` → success (Vite 8.3.4, 66 modules).
+- Live HTTP smoke test through uvicorn + the Vite proxy → 36/36 checks, including 750 mm → 7.5 bbl interpolation, 1P/2P tank-axis separation, mm+litre → cm+bbl conversion (1589.87294928 L → exactly 10 bbl), out-of-range refusal then flagged clamp, and wide-layout import.
+- XLSX uploads covered by generated workbooks: a long sheet in m and kL converting to canonical cm and bbl, a multi-tank wide sheet, an undeclared-tank rejection, and an XLSX asset register import.
+- Location scoping covered: a user whose role has location assignments sees only those locations plus Global assets, and is refused a single-asset read outside them.
+- The four new tables compile through SQLAlchemy's PostgreSQL dialect to well-formed DDL (bounded `VARCHAR`s, `NUMERIC(14,4)`/`NUMERIC(16,6)` canonical columns, both unique constraints surviving as named constraints, no JSON type).
+- Frontend/backend field contract cross-checked against live responses: 58 snake_case field reads across the two new pages, none reading a field the API does not return.
+- Not verified: manual light/dark review of the two new pages in a browser (no browser binary is installable in this sandbox), and `create_all` against a live PostgreSQL server (the dialect DDL was checked; no server binary is available to run it).
+
 ## 2026-10-17 — User, Role and Location Master modules
 
 **Note:** [`changes/2026-10-17-user-role-location-masters.md`](changes/2026-10-17-user-role-location-masters.md)

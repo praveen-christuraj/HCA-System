@@ -15,8 +15,21 @@ from app.dependencies.permissions import (
     require_permission,
     user_has_permission,
 )
-from app.models import AuditLog, Location, PasswordResetRequest, Permission, Role, RoleLocation, User
+from app.models import (
+    Asset,
+    AssetCalibrationRow,
+    AssetCalibrationTable,
+    AssetTank,
+    AuditLog,
+    Location,
+    PasswordResetRequest,
+    Permission,
+    Role,
+    RoleLocation,
+    User,
+)
 from app.services.serializers import audit_to_dict, user_to_dict
+from app.utils.asset_types import asset_type_catalog
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -33,9 +46,14 @@ USER_MODULES = (
     "Role Location Assignment",
 )
 
+MASTER_DATA_MODULES = (
+    "Asset Master",
+    "Asset Calibration",
+)
+
 MODULE_PERMISSIONS = {
     "user-management": "users:read",
-    "master-data": "locations:read",
+    "master-data": "assets:read",
     "business": "dashboard:read",
     "reports": "dashboard:read",
     "backup": "dashboard:read",
@@ -62,6 +80,10 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
     location_total = db.query(func.count(Location.id)).scalar() or 0
     location_active = db.query(func.count(Location.id)).filter(Location.status == "Active").scalar() or 0
     role_location_total = db.query(func.count(RoleLocation.id)).scalar() or 0
+    asset_total = db.query(func.count(Asset.id)).scalar() or 0
+    asset_active = db.query(func.count(Asset.id)).filter(Asset.status == "Active").scalar() or 0
+    tank_total = db.query(func.count(AssetTank.id)).scalar() or 0
+    chart_total = db.query(func.count(AssetCalibrationTable.id)).scalar() or 0
 
     return [
         {
@@ -69,8 +91,8 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
             "name": "User Management",
             "status": "Available",
             "description": (
-                "User Master, Role Master, standard permission assignment, user-role assignment, "
-                "password administration and audited access control."
+                "User Master, Role Master, Location Master, role permission, role location and "
+                "user role assignment, with password administration and audited access control."
             ),
             "path": "/modules/user-management",
             "permission": "users:read",
@@ -78,23 +100,24 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 {"label": "Users", "value": user_total},
                 {"label": "Active users", "value": user_active},
                 {"label": "Roles", "value": role_total},
-                {"label": "Permissions", "value": permission_total},
+                {"label": "Locations", "value": location_total},
             ],
         },
         {
             "key": "master-data",
             "name": "Master Data Management",
-            "status": "Foundation",
+            "status": "Available",
             "description": (
-                "Location Master and role-based location access are available; additional "
-                "operational reference data will be delivered in later increments."
+                "Asset Master over the seven fixed hydrocarbon asset types, with tanks declared "
+                "per asset and calibration charts stored in canonical cm and bbl."
             ),
             "path": "/modules/master-data",
-            "permission": "locations:read",
+            "permission": "assets:read",
             "metrics": [
-                {"label": "Locations", "value": location_total},
-                {"label": "Active locations", "value": location_active},
-                {"label": "Role assignments", "value": role_location_total},
+                {"label": "Assets", "value": asset_total},
+                {"label": "Active assets", "value": asset_active},
+                {"label": "Tanks", "value": tank_total},
+                {"label": "Calibration charts", "value": chart_total},
             ],
         },
         {
@@ -304,12 +327,18 @@ def module_dashboard(
             db.query(func.count(Permission.id)).filter(Permission.status == "Active").scalar() or 0
         )
 
+        locations_total = db.query(func.count(Location.id)).scalar() or 0
+        locations_active = (
+            db.query(func.count(Location.id)).filter(Location.status == "Active").scalar() or 0
+        )
+        role_locations_total = db.query(func.count(RoleLocation.id)).scalar() or 0
+
         kpis = [
             {"label": "Total users", "value": users_total, "context": "All accounts"},
             {"label": "Active users", "value": users_active, "context": "Can sign in"},
             {"label": "Inactive users", "value": users_inactive, "context": "Access revoked"},
             {"label": "Locked accounts", "value": users_locked, "context": "Temporary lockout"},
-            {"label": "New in 30 days", "value": users_new, "context": "Account growth"},
+            {"label": "Locations", "value": f"{locations_active} / {locations_total}", "context": "Active / total"},
             {"label": "Roles / permissions", "value": f"{roles_total} / {permissions_total}", "context": "RBAC catalog"},
         ]
         status_rows = (
@@ -322,10 +351,16 @@ def module_dashboard(
         quick_links = [
             {"label": "User Master", "path": "/users", "permission": "users:read"},
             {"label": "Role Master", "path": "/roles", "permission": "roles:read"},
+            {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
             {
                 "label": "Role Permission Assignment",
                 "path": "/role-permissions",
                 "all_permissions": ["roles:read", "permissions:read"],
+            },
+            {
+                "label": "Role Location Assignment",
+                "path": "/role-locations",
+                "all_permissions": ["roles:read", "locations:read"],
             },
             {
                 "label": "User Role Assignment",
@@ -336,34 +371,52 @@ def module_dashboard(
         ]
         activity_query = db.query(AuditLog).filter(AuditLog.module_name.in_(USER_MODULES))
     elif module_key == "master-data":
-        location_total = db.query(func.count(Location.id)).scalar() or 0
-        location_active = db.query(func.count(Location.id)).filter(Location.status == "Active").scalar() or 0
-        location_inactive = db.query(func.count(Location.id)).filter(Location.status != "Active").scalar() or 0
-        role_location_total = db.query(func.count(RoleLocation.id)).scalar() or 0
-        kpis = [
-            {"label": "Total locations", "value": location_total, "context": "Configured master data"},
-            {"label": "Active locations", "value": location_active, "context": "Available for assignment"},
-            {"label": "Inactive locations", "value": location_inactive, "context": "Retained for history"},
-            {"label": "Role assignments", "value": role_location_total, "context": "Role-to-location links"},
-        ]
-        type_rows = (
-            db.query(Location.location_type, func.count(Location.id))
-            .group_by(Location.location_type)
-            .order_by(func.count(Location.id).desc(), Location.location_type.asc())
-            .limit(8)
-            .all()
+        asset_total = db.query(func.count(Asset.id)).scalar() or 0
+        asset_active = (
+            db.query(func.count(Asset.id)).filter(Asset.status == "Active").scalar() or 0
         )
-        breakdown = [{"label": location_type, "value": count, "tone": "info"} for location_type, count in type_rows]
-        quick_links = [
-            {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
+        asset_inactive = asset_total - asset_active
+        tank_total = db.query(func.count(AssetTank.id)).scalar() or 0
+        chart_total = db.query(func.count(AssetCalibrationTable.id)).scalar() or 0
+        chart_rows = db.query(func.count(AssetCalibrationRow.id)).scalar() or 0
+        calibrated_assets = (
+            db.query(func.count(func.distinct(AssetCalibrationTable.asset_id))).scalar() or 0
+        )
+        local_assets = (
+            db.query(func.count(Asset.id)).filter(Asset.asset_scope == "Local").scalar() or 0
+        )
+        global_assets = (
+            db.query(func.count(Asset.id)).filter(Asset.asset_scope == "Global").scalar() or 0
+        )
+
+        kpis = [
+            {"label": "Total assets", "value": asset_total, "context": f"{asset_active} active"},
+            {"label": "Inactive assets", "value": asset_inactive, "context": "Retained for history"},
+            {"label": "Tanks declared", "value": tank_total, "context": "Across all assets"},
+            {"label": "Calibration charts", "value": chart_total, "context": f"{chart_rows} points"},
+            {"label": "Assets calibrated", "value": f"{calibrated_assets} / {asset_total}", "context": "Charts uploaded"},
+            {"label": "Local / global", "value": f"{local_assets} / {global_assets}", "context": "By scope"},
+        ]
+
+        type_counts = dict(
+            db.query(Asset.asset_type_code, func.count(Asset.id)).group_by(Asset.asset_type_code).all()
+        )
+        # Every fixed asset type is listed, including the ones with no assets
+        # yet, so the catalog stays visible and honest about coverage.
+        breakdown = [
             {
-                "label": "Role Location Assignment",
-                "path": "/role-locations",
-                "all_permissions": ["roles:read", "locations:read"],
-            },
+                "label": definition["name"],
+                "value": type_counts.get(definition["code"], 0),
+                "tone": "info" if type_counts.get(definition["code"], 0) else "neutral",
+            }
+            for definition in asset_type_catalog()
+        ]
+        quick_links = [
+            {"label": "Asset Master", "path": "/assets", "permission": "assets:read"},
+            {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
         ]
         activity_query = db.query(AuditLog).filter(
-            AuditLog.module_name.in_(("Location Master", "Role Location Assignment"))
+            AuditLog.module_name.in_(MASTER_DATA_MODULES)
         )
     elif module_key == "auditing":
         audit_total = db.query(func.count(AuditLog.id)).scalar() or 0

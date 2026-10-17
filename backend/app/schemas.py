@@ -6,7 +6,7 @@ so that every router returns the same field names.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -169,3 +169,78 @@ class PageMeta(BaseModel):
     page_size: int
     pages: int
     has_more: bool
+
+
+# ---------------------------------------------------------------------------
+# Master data — assets, tanks and calibration
+#
+# ``asset_type_code`` accepts any catalog spelling ("Storage Tank",
+# "STORAGE_TANK", "storage-tank") and is folded onto the hard-coded catalog code
+# by the router, so an import file never has to know the internal key.
+# ---------------------------------------------------------------------------
+class AssetTankInput(BaseModel):
+    tank_name: str = Field(min_length=1, max_length=120)
+    tank_code: Optional[str] = Field(default=None, max_length=50)
+    sort_order: Optional[int] = Field(default=None, ge=1, le=9999)
+    description: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AssetCreate(BaseModel):
+    asset_name: str = Field(min_length=2, max_length=150)
+    asset_code: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9._/-]+$")
+    asset_type_code: str = Field(min_length=1, max_length=50)
+    asset_scope: Literal["Local", "Global"] = "Local"
+    location_id: Optional[int] = None
+    calibration_required: bool = True
+    dip_unit: Literal["cm", "mm", "m"] = "cm"
+    volume_unit: Literal["l", "kl", "bbl"] = "bbl"
+    serial_number: Optional[str] = Field(default=None, max_length=100)
+    manufacturer: Optional[str] = Field(default=None, max_length=150)
+    model: Optional[str] = Field(default=None, max_length=150)
+    commission_date: Optional[date] = None
+    description: Optional[str] = Field(default=None, max_length=2000)
+    status: Literal["Active", "Inactive"] = "Active"
+    tanks: list[AssetTankInput] = Field(default_factory=list)
+
+
+class AssetUpdate(BaseModel):
+    asset_name: Optional[str] = Field(default=None, min_length=2, max_length=150)
+    asset_code: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9._/-]+$",
+    )
+    asset_type_code: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    asset_scope: Optional[Literal["Local", "Global"]] = None
+    location_id: Optional[int] = None
+    calibration_required: Optional[bool] = None
+    dip_unit: Optional[Literal["cm", "mm", "m"]] = None
+    volume_unit: Optional[Literal["l", "kl", "bbl"]] = None
+    serial_number: Optional[str] = Field(default=None, max_length=100)
+    manufacturer: Optional[str] = Field(default=None, max_length=150)
+    model: Optional[str] = Field(default=None, max_length=150)
+    commission_date: Optional[date] = None
+    description: Optional[str] = Field(default=None, max_length=2000)
+    status: Optional[Literal["Active", "Inactive"]] = None
+    tanks: Optional[list[AssetTankInput]] = None
+
+
+class VolumeLookupRequest(BaseModel):
+    """Dip -> volume lookup against an asset's active calibration chart."""
+
+    tank_name: str = Field(min_length=1, max_length=120)
+    dip_value: float = Field(ge=0)
+    dip_unit: Optional[Literal["cm", "mm", "m"]] = None
+    volume_unit: Optional[Literal["l", "kl", "bbl"]] = None
+    allow_clamping: bool = False
+
+
+class VolumeLookupBatchRequest(BaseModel):
+    """Several readings for one tank in a single round trip."""
+
+    tank_name: str = Field(min_length=1, max_length=120)
+    dip_values: list[float] = Field(min_length=1, max_length=200)
+    dip_unit: Optional[Literal["cm", "mm", "m"]] = None
+    volume_unit: Optional[Literal["l", "kl", "bbl"]] = None
+    allow_clamping: bool = False

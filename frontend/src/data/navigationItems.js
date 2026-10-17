@@ -14,6 +14,8 @@ export const navigationItems = [
   {
     label: 'User Management',
     type: 'dropdown',
+    // Owner ordering: User Master, Role Master, Location Master, Role Permission
+    // Assignment, Role Location Assignment, User Role Assignment.
     items: [
       {
         label: 'Module Dashboard',
@@ -22,10 +24,16 @@ export const navigationItems = [
       },
       { label: 'User Master', path: '/users', permission: 'users:read' },
       { label: 'Role Master', path: '/roles', permission: 'roles:read' },
+      { label: 'Location Master', path: '/locations', permission: 'locations:read' },
       {
         label: 'Role Permission Assignment',
         path: '/role-permissions',
         allPermissions: ['roles:read', 'permissions:read'],
+      },
+      {
+        label: 'Role Location Assignment',
+        path: '/role-locations',
+        allPermissions: ['roles:read', 'locations:read'],
       },
       {
         label: 'User Role Assignment',
@@ -41,14 +49,10 @@ export const navigationItems = [
       {
         label: 'Module Dashboard',
         path: '/modules/master-data',
-        permission: 'locations:read',
+        permission: 'assets:read',
       },
-      { label: 'Location Master', path: '/locations', permission: 'locations:read' },
-      {
-        label: 'Role Location Assignment',
-        path: '/role-locations',
-        allPermissions: ['roles:read', 'locations:read'],
-      },
+      { label: 'Asset Master', path: '/assets', permission: 'assets:read' },
+      { label: 'Asset Calibration', path: '/asset-calibration', permission: 'assets:read' },
     ],
   },
   {
@@ -100,6 +104,8 @@ export const hiddenRouteLabels = {
   '/role-permissions': 'Role Permission Assignment',
   '/role-locations': 'Role Location Assignment',
   '/user-roles': 'User Role Assignment',
+  '/assets': 'Asset Master',
+  '/asset-calibration': 'Asset Calibration',
   '/audit': 'Audit Trail',
 }
 

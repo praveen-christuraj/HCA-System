@@ -30,9 +30,9 @@ HCA-System/
 │   │   ├── schemas.py            # Pydantic request/response models
 │   │   ├── main.py               # app factory, lifespan seeding, middleware, routers
 │   │   ├── dependencies/         # auth + RBAC dependencies
-│   │   ├── routers/              # one router per module (auth, users, roles, audit...)
-│   │   ├── services/             # audit, RBAC catalog, dashboard aggregation, import validation
-│   │   ├── utils/                # jwt, security, pagination, permissions catalog
+│   │   ├── routers/              # one router per module (auth, users, roles, assets, audit...)
+│   │   ├── services/             # audit, RBAC catalog, dashboards, imports, calibration engine
+│   │   ├── utils/                # jwt, security, pagination, permissions, asset types, units
 │   │   └── seed_admin.py         # idempotent admin + catalog seeding (standalone)
 │   ├── tests/                    # pytest suite (SQLite)
 │   ├── Dockerfile
@@ -190,6 +190,24 @@ read-only and itself permission-gated.
   master data, never by a JSON flag.
 - No `JSON`, `JSONB`, `HSTORE`, serialized pickle or document columns.
 
+### Asset and calibration domain
+
+`Asset` carries the hard-coded `asset_type_code` (no `asset_types` table — see ADR-014),
+`asset_scope` (`Local`/`Global`) and a nullable `location_id` that is mandatory for `Local`
+assets. `AssetTank` is a child table unique on `(asset_id, tank_name)`.
+
+`AssetCalibrationTable` is one active chart per asset; `AssetCalibrationRow` stores each point as
+typed `Numeric` columns — `dip_cm` and `volume_bbl` in canonical units, plus
+`source_dip_value`/`source_volume_value` exactly as the chart supplied them. `dip_cm` holds dip
+*or* ullage in centimetres per the parent chart's `measurement_basis`, so every payload that
+exposes it also exposes the basis.
+
+Canonical units are **cm** and **bbl**. Accepted source units are cm/mm/m and L/kL/bbl, converted
+in `app/utils/units.py` using 1 bbl = 158.987294928 L = 0.158987294928 m³ — the same constant OTMS
+used, so historical results reconcile. Interpolation lives server-side in
+`app/services/calibration_engine.py` and every result reports its `method`, bracketing points and
+`in_range` flag rather than clamping silently (ADR-017).
+
 ---
 
 ## 7. Frontend architecture
@@ -278,3 +296,8 @@ Recorded in [DECISIONS.md](DECISIONS.md). Summary:
 | Admin seed | Manual `seed_admin.py` | Automatic idempotent seed in the container entrypoint |
 | Navigation | Top nav with large menu | Same pattern, module-first groups, permission-filtered |
 | Yes/No strings | Many `"Yes"/"No"` columns | Real booleans for new structures |
+| Asset types | Editable `asset_types` master table | Hard-coded catalog of seven types in code |
+| Tanks | No tank master; identity inside calibration rows | Typed `asset_tanks`, declared with the asset |
+| Calibration schema | User-designed template columns + `row_data` JSONB rows | Fixed three columns; typed `Numeric` rows in canonical cm/bbl |
+| Calibration units | Assumed cm and bbl | cm/mm/m and L/kL/bbl accepted, converted once, source kept |
+| Interpolation | Browser-only, silent clamping, `0` for an empty table | Server-side; method, bracketing points and out-of-range refusal |

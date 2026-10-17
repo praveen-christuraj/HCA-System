@@ -9,6 +9,8 @@ import Home from './pages/Home'
 import LoginPage from './pages/LoginPage'
 import ModuleDashboard from './pages/ModuleDashboard'
 import NotFound from './pages/NotFound'
+import AssetCalibration from './pages/AssetCalibration'
+import Assets from './pages/Assets'
 import Locations from './pages/Locations'
 import RoleLocations from './pages/RoleLocations'
 import RolePermissions from './pages/RolePermissions'
@@ -133,6 +135,22 @@ function App() {
               element={
                 <PermissionGuard loggedInUser={loggedInUser} allOfPermissions={["users:read", "roles:read"]}>
                   <UserRoles />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/asset-calibration"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="assets:read">
+                  <AssetCalibration />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/assets"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="assets:read">
+                  <Assets />
                 </PermissionGuard>
               }
             />

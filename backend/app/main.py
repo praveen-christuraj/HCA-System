@@ -21,6 +21,8 @@ from app.config import ALLOWED_ORIGINS, APP_NAME, APP_VERSION, BOOTSTRAP_ADMIN_O
 from app.database import SessionLocal, init_db
 from app.middleware import AuditMiddleware, SecurityHeadersMiddleware
 from app.routers import (
+    asset_calibration,
+    assets,
     audit_logs,
     auth,
     dashboard,
@@ -92,6 +94,8 @@ app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(roles.router, prefix=API_PREFIX)
 app.include_router(locations.router, prefix=API_PREFIX)
 app.include_router(role_locations.router, prefix=API_PREFIX)
+app.include_router(assets.router, prefix=API_PREFIX)
+app.include_router(asset_calibration.router, prefix=API_PREFIX)
 app.include_router(user_roles.router, prefix=API_PREFIX)
 app.include_router(permissions.router, prefix=API_PREFIX)
 app.include_router(audit_logs.router, prefix=API_PREFIX)

@@ -75,8 +75,15 @@ RESOURCE_PERMISSION_DEFINITIONS = [
     {
         "resource": "locations",
         "module_name": "Location Master",
-        "category": "Master Data Management",
+        "category": "User Management",
         "label": "locations",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
+        "resource": "assets",
+        "module_name": "Asset Master",
+        "category": "Master Data Management",
+        "label": "assets, their tanks and calibration charts",
         "actions": (READ, CREATE, UPDATE, DELETE),
     },
     {
