@@ -1194,3 +1194,133 @@ def test_asset_register_xlsx_import(client, admin_headers, location_id):
     assert asset["asset_type_code"] == "BARGE"
     assert asset["tank_count"] == 2
     assert asset["location_code"] == "ASSET-TERM-01"
+
+
+def test_location_scoped_user_sees_only_global_and_own_locations(client, admin_headers):
+    """A user whose role has location assignments is restricted; admin is not.
+
+    This is the behaviour ``get_user_location_ids`` exists for: once a role is
+    given locations, its members see those locations plus Global assets, and
+    assets at any other location are not merely filtered out of the list but
+    are absent from single-asset reads too.
+    """
+    home = client.post(
+        "/api/locations",
+        json={"location_name": "Scoped Home", "location_code": "ASSET-HOME-01", "location_type": "Terminal"},
+        headers=admin_headers,
+    ).json()
+    elsewhere = client.post(
+        "/api/locations",
+        json={"location_name": "Scoped Elsewhere", "location_code": "ASSET-FAR-01", "location_type": "Terminal"},
+        headers=admin_headers,
+    ).json()
+
+    role = client.post(
+        "/api/roles",
+        json={"role_name": "Scoped Asset Operator", "description": "One location only"},
+        headers=admin_headers,
+    ).json()
+    catalog = client.get("/api/permissions/catalog", headers=admin_headers).json()
+    read_id = next(
+        permission["id"]
+        for category in catalog["categories"]
+        for module in category["modules"]
+        for permission in module["permissions"]
+        if permission["permission_name"] == "assets:read"
+    )
+    client.put(
+        f"/api/roles/{role['id']}/permissions",
+        json={"permission_ids": [read_id]},
+        headers=admin_headers,
+    )
+    location_response = client.put(
+        f"/api/role-locations/{role['id']}",
+        json={"location_ids": [home["id"]]},
+        headers=admin_headers,
+    )
+    assert location_response.status_code == 200, location_response.text
+    client.post(
+        "/api/users",
+        json={
+            "full_name": "Scoped Operator",
+            "username": "scopedoperator",
+            "email": "scopedoperator@example.com",
+            "password": "ScopedOp@123",
+            "role_ids": [role["id"]],
+        },
+        headers=admin_headers,
+    )
+    tokens = client.post(
+        "/api/auth/login",
+        json={"username": "scopedoperator", "password": "ScopedOp@123"},
+    ).json()
+    scoped = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    at_home = client.post(
+        "/api/assets",
+        json={
+            "asset_name": "Scoped Home Barge",
+            "asset_code": "BRG-SCOPED-HOME-01",
+            "asset_type_code": "BARGE",
+            "asset_scope": "Local",
+            "location_id": home["id"],
+            "calibration_required": False,
+        },
+        headers=admin_headers,
+    ).json()
+    far_away = client.post(
+        "/api/assets",
+        json={
+            "asset_name": "Scoped Far Barge",
+            "asset_code": "BRG-SCOPED-FAR-01",
+            "asset_type_code": "BARGE",
+            "asset_scope": "Local",
+            "location_id": elsewhere["id"],
+            "calibration_required": False,
+        },
+        headers=admin_headers,
+    ).json()
+    shared = client.post(
+        "/api/assets",
+        json={
+            "asset_name": "Scoped Global Flowmeter",
+            "asset_code": "FLW-SCOPED-GLOBAL-01",
+            "asset_type_code": "FLOWMETER",
+            "asset_scope": "Global",
+            "calibration_required": False,
+        },
+        headers=admin_headers,
+    ).json()
+
+    # Admin sees all three.
+    admin_view = client.get("/api/assets", headers=admin_headers).json()
+    admin_codes = {item["asset_code"] for item in admin_view["items"]}
+    assert {"BRG-SCOPED-HOME-01", "BRG-SCOPED-FAR-01", "FLW-SCOPED-GLOBAL-01"} <= admin_codes
+
+    # The scoped user sees their own location plus every Global asset. Other
+    # tests in this module also create Global assets against the same shared
+    # fixture, so assert on membership rather than an exact set.
+    scoped_view = client.get("/api/assets", headers=scoped).json()
+    scoped_codes = {item["asset_code"] for item in scoped_view["items"]}
+    assert "BRG-SCOPED-HOME-01" in scoped_codes
+    assert "FLW-SCOPED-GLOBAL-01" in scoped_codes
+    # The asset at a location the role was not given must be absent, while
+    # Global assets created elsewhere in the suite are still visible.
+    assert "BRG-SCOPED-FAR-01" not in scoped_codes
+    assert all(
+        item["asset_scope"] == "Global" or item["asset_code"] == "BRG-SCOPED-HOME-01"
+        for item in scoped_view["items"]
+    )
+    assert scoped_view["total"] == len(scoped_view["items"])
+
+    # The reference data the filter bar needs is still complete, so the UI is
+    # not left showing a location the user cannot see assets for.
+    reference = client.get("/api/assets/reference", headers=scoped).json()
+    assert len(reference["asset_types"]) == len(asset_type_catalog())
+    assert reference["canonical_dip_unit"] == "cm"
+    assert reference["canonical_volume_unit"] == "bbl"
+
+    # Single reads and lookups are scoped the same way as the list.
+    assert client.get(f"/api/assets/{at_home['id']}", headers=scoped).status_code == 200
+    assert client.get(f"/api/assets/{shared['id']}", headers=scoped).status_code == 200
+    assert client.get(f"/api/assets/{far_away['id']}", headers=scoped).status_code == 404

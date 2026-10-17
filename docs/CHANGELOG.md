@@ -21,10 +21,13 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 **Verification**
 
-- `cd backend && ./.venv/bin/python -m pytest -q` → `69 passed, 1 warning` (28 pre-existing + 41 new, including four XLSX upload tests).
+- `cd backend && ./.venv/bin/python -m pytest -q` → `70 passed, 1 warning` (28 pre-existing + 42 new, including four XLSX upload tests
+  and location-scope enforcement).
 - `cd frontend && npm run build` → success (Vite 8.3.4, 66 modules).
 - Live HTTP smoke test through uvicorn + the Vite proxy → 36/36 checks, including 750 mm → 7.5 bbl interpolation, 1P/2P tank-axis separation, mm+litre → cm+bbl conversion (1589.87294928 L → exactly 10 bbl), out-of-range refusal then flagged clamp, and wide-layout import.
-- Not verified: manual light/dark review of the two new pages, PostgreSQL schema creation for the four new tables, and an XLSX wide-sheet upload against a real Excel file.
+- XLSX uploads covered by generated workbooks: a long sheet in m and kL converting to canonical cm and bbl, a multi-tank wide sheet, an undeclared-tank rejection, and an XLSX asset register import.
+- Location scoping covered: a user whose role has location assignments sees only those locations plus Global assets, and is refused a single-asset read outside them.
+- Not verified: manual light/dark review of the two new pages in a browser, and PostgreSQL schema creation for the four new tables (tests run on SQLite; `create_all` runs at startup and no Alembic baseline exists yet).
 
 ## 2026-10-17 — User, Role and Location Master modules
 

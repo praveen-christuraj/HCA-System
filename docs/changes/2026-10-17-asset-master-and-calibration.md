@@ -106,7 +106,7 @@ asset; a new upload replaces it and the audit row records the row count and char
 
 ## Verification
 
-- `cd backend && ./.venv/bin/python -m pytest -q` → **65 passed, 1 warning** (28 pre-existing + 37
+- `cd backend && ./.venv/bin/python -m pytest -q` → **70 passed, 1 warning** (28 pre-existing + 42
   new). New coverage: the seven fixed types and their aliases, conversion factors
   (158.987294928 L → exactly 1 bbl; 1 kL → 6.289810770432105 bbl; 5 m → 500 cm), scope rules,
   tank declaration rules, chart preview/commit, mm+litre conversion on the way in, wide-layout
@@ -123,12 +123,16 @@ asset; a new upload replaces it and the audit row records the row count and char
   both module dashboards and the permission catalog placement.
 - Vite dev server serves the SPA and proxies `/api` to the backend (`/api/health` → ok, login →
   token).
+- Location-scope enforcement for non-admin users: a user whose role has location
+  assignments sees only those locations plus Global assets, and a single-asset read
+  outside them returns 404 rather than leaking the record.
+- XLSX chart upload and the XLSX asset register import are covered by real generated
+  workbooks: a long sheet in m and kL (converted to cm and bbl on import), a multi-tank
+  wide sheet, an undeclared-tank rejection, and a register import whose `Barge` alias
+  folds onto the fixed `BARGE` code.
 
 ## Not verified in this delivery
 
 - Manual light/dark visual review of the two new pages in a browser.
 - PostgreSQL schema creation for the four new tables (tests run on SQLite; `create_all` runs at
   startup and no Alembic baseline exists yet).
-- XLSX chart upload is now covered by real generated workbooks: a long sheet in m and kL
-  (converted to cm and bbl on import), a multi-tank wide sheet, an undeclared-tank
-  rejection, and an XLSX asset register import.
