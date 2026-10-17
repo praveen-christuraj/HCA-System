@@ -5,6 +5,19 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-17 — Render API deployment switched to native Python 3 (no Dockerfile)
+
+**Note:** [`changes/2026-10-17-render-python-runtime.md`](changes/2026-10-17-render-python-runtime.md)
+
+| Area | Delivered |
+| --- | --- |
+| Deployment | `render.yaml` now defines a native Render Python web service instead of a Docker build: `env: python`, root `backend`, build `pip install -r requirements.txt`, start `python3 -m app.seed_admin && python3 -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`, `PYTHON_VERSION=3.12.8`, health check `/api/health`. The seed-first start command keeps the "no manual seed step" rule (ADR-006) intact on Render (ADR-010). `DEPLOY_CLOUD.md`, `README.md` and project memory updated. Docker Compose and the Dockerfiles remain unchanged for local/OTMS deployment. |
+
+**Verification**
+
+- `render.yaml` parses as valid YAML (PyYAML `safe_load`).
+- `cd backend && python -m pytest -q` → `19 passed` (no application code changed).
+
 ## 2026-10-17 — Initial build: authentication, RBAC, audit, dashboards, User Master, Audit Trail, spreadsheets
 
 **Note:** [`changes/2026-10-17-initial-build.md`](changes/2026-10-17-initial-build.md)

@@ -123,3 +123,25 @@ the unseeded-admin state.
 through a migration and their API contracts updated.
 
 **Consequences.** Cleaner SQL and reporting; extraction requires mapping work per module.
+
+---
+
+## ADR-010 — Render deploys the API natively with python3 commands, not the Dockerfile
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** `render.yaml` first deployed the API from `backend/Dockerfile` (`runtime: docker`).
+The owner asked to deploy on Render with the Python 3 runtime and plain `python3` commands
+instead of a Docker image.
+
+**Decision.** Render runs the API as a native Python web service (`env: python`,
+`rootDir: backend`): build `pip install -r requirements.txt`, start
+`python3 -m app.seed_admin && python3 -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`,
+`PYTHON_VERSION=3.12.8`, health check `/api/health`. The seed-first start command preserves the
+ADR-006 contract (no manual seeding) without the container entrypoint. `backend/Dockerfile`,
+`backend/docker-entrypoint.sh` and `docker-compose.yml` stay unchanged and remain the local
+deployment (ADR-005).
+
+**Consequences.** Simpler, faster Render builds with no Docker layer; the same environment
+contract (`DATABASE_URL`, `JWT_SECRET_KEY`, `ENCRYPTION_KEY`, `SEED_ADMIN_*`, `CORS_ORIGINS`).
+Uvicorn must bind `0.0.0.0:$PORT` because Render injects the port. If the start command is ever
+edited in the Render dashboard, the seed step must stay before uvicorn.

@@ -224,6 +224,16 @@ docker compose up --build
 - Local development without Docker: SQLite (`DATABASE_URL=sqlite:///./hca.db`), Vite dev server
   proxying `/api` to `http://127.0.0.1:8000`.
 
+### Cloud topology (Render + Vercel + Supabase)
+
+- The API deploys on Render as a **native Python web service** (`render.yaml`, ADR-010): Render
+  installs `backend/requirements.txt`, then the start command runs `python3 -m app.seed_admin`
+  (waits for PostgreSQL, seeds idempotently) and `python3 -m uvicorn app.main:app --host 0.0.0.0
+  --port $PORT`. The Dockerfile is not used on Render.
+- PostgreSQL is external (e.g. the Supabase Session pooler); the SPA is built and served by
+  Vercel (`vercel.json` SPA fallback) and calls the API via `VITE_API_BASE_URL`. Operator steps
+  live in `DEPLOY_CLOUD.md`.
+
 ### Health
 
 `GET /api/health` returns:
