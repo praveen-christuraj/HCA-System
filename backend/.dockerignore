@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+hca.db
+*.sqlite3
+.env
