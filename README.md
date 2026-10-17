@@ -30,6 +30,10 @@ once in the backend log:
 docker compose logs backend | grep -A3 "ADMIN CREDENTIALS"
 ```
 
+## Cloud deployment (Vercel + Render + Supabase)
+
+See [`DEPLOY_CLOUD.md`](DEPLOY_CLOUD.md) for the provider setup, environment variables, secure database configuration, deployment steps, and verification. `render.yaml` defines the Render API service and `vercel.json` configures SPA fallback. The existing Dockerfiles and Docker Compose deployment are intentionally retained unchanged.
+
 ## Local development (no Docker)
 
 Requirements: Python 3.11+ and Node 20+.
