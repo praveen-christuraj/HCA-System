@@ -182,3 +182,102 @@ pages replace typed child rows under `assignments:write` and are audited.
 
 **Consequences.** Location hierarchy and role scope can be filtered and joined in SQL; imports
 use bounded CSV/XLSX preview/confirmation and preserve the same typed constraints.
+
+---
+
+## ADR-013 — Location Master and Role Location Assignment live under User Management
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** Location Master and Role Location Assignment shipped under Master Data Management.
+The owner directed that both move under User Management, in the order User Master, Role Master,
+Location Master, Role Permission Assignment, Role Location Assignment, User Role Assignment —
+because location access is part of what a role grants, not operational reference data.
+
+**Decision.** Move both pages into the User Management navigation group in that order, move the
+`locations` permission resource into the `User Management` catalog category, add both pages to
+the User Management module dashboard (KPI plus quick links), and repoint the Master Data module
+dashboard at the asset module.
+
+**Consequences.** `MODULE_PERMISSIONS["master-data"]` is now `assets:read`. Bootstrap migrates
+the `locations` permission rows to the new category idempotently, so no manual data change is
+needed. Master Data Management is left as the asset and calibration module.
+
+---
+
+## ADR-014 — Asset types are hard coded, not a soft-coded master
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** OTMS stores asset types in an editable `asset_types` table. That let an installation
+rename or delete a type at runtime, and downstream code then had to guess an asset's nature from
+free text — OTMS `asset_family.py` exists precisely because barge tickets were lost when a client
+called their barge class `YADE`.
+
+**Decision.** Ship a closed catalog of seven asset types — Storage Tank, Barge, Shuttle Vessel,
+FSO, Prime Mover, Tanker Trailer, Flowmeter — in `backend/app/utils/asset_types.py`. There is no
+`asset_types` table and no CRUD. The catalog is the single source of truth for the dropdown, for
+validation, and for whether a type carries tanks or takes calibration. Import files may spell a
+type any accepted way; aliases fold onto one code (`YADE` → `BARGE`).
+
+**Consequences.** Rules that depend on an asset's nature are stable. Adding a type is a reviewed
+code change rather than a runtime setting. Prime Mover and Flowmeter cannot be marked as
+requiring calibration, and types that carry no tank reject tank declarations.
+
+---
+
+## ADR-015 — Tanks are declared with the asset and key the calibration chart
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** A barge, FSO or tanker trailer carries several compartments, and a calibration chart
+is keyed by compartment name. OTMS had no tank master, so tank identity lived only inside
+free-form calibration rows and could not be validated.
+
+**Decision.** Add a typed `asset_tanks` child table, unique on `(asset_id, tank_name)`, populated
+in the same dialog that creates the asset. Calibration rows reference `tank_id`, so a chart can
+only describe compartments the asset actually has.
+
+**Consequences.** A chart naming an undeclared compartment is rejected at preview. Removing a
+tank that has calibration rows is blocked until the chart is deleted. The tank name becomes the
+third interpolation axis, resolved exactly — never approximated to a neighbouring compartment.
+
+---
+
+## ADR-016 — Calibration charts have a fixed three-column shape, stored in canonical units
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** OTMS let each installation design its own calibration template columns
+(`CalibrationTemplateColumn` with a user-chosen `interpolation_role`) and stored every row as
+`row_data JSONB` keyed by those invented names. Nothing downstream could rely on a field
+existing, and HCA forbids JSON columns outright.
+
+**Decision.** A chart always has three columns — tank name, dip/ullage, volume. The template
+master is therefore not a user-designed object: the shape is fixed in code and the user supplies
+only the measurement basis and the units the file is written in. Accepted depth units are cm, mm
+and m; accepted volume units are litres, kilolitres and barrels. Values are converted once on the
+way in and stored as typed `Numeric` columns in canonical cm and bbl, alongside the values as
+supplied. One chart is active per asset; uploading replaces it and the audit row records the row
+count and chart name that were replaced.
+
+**Consequences.** Interpolation is a pure function over typed columns, callable from the API and
+from future business modules. Conversions are re-checkable because the source values are kept.
+Conversion basis: 1 bbl = 158.987294928 L = 0.158987294928 m³, the same constant OTMS used, so
+historical results reconcile.
+
+---
+
+## ADR-017 — Interpolation reports how a volume was derived instead of clamping silently
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** OTMS interpolated in the browser only, and its `linearInterpolation` clamped any
+reading outside the chart to the first or last row and returned `0` for an empty table. A dip
+above the certified range therefore produced a plausible volume with no signal that it was out of
+range — a real custody risk.
+
+**Decision.** Interpolate server-side. Every result carries a `method` (`exact`, `interpolated`,
+`clamped_low`, `clamped_high`), the bracketing points, an `in_range` flag and any warnings.
+Out-of-range readings are refused by default; holding the end volume is an explicit opt-in and is
+still refused beyond 5 cm outside the certified range. A duplicated depth with two different
+volumes is rejected rather than resolved arbitrarily.
+
+**Consequences.** Business modules can consume the same engine the UI uses, and every resolved
+volume can be defended from the audit trail. A chart that gains volume as the dip grows is
+reported as a warning at upload, since that usually means a transposed column.

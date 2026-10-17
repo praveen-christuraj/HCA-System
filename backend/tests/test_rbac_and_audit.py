@@ -168,11 +168,68 @@ def test_user_export_contains_headers(client, admin_headers):
     assert "admin" in text
 
 
-def test_module_dashboard_reports_location_foundation(client, admin_headers):
+def test_module_dashboard_reports_master_data_asset_module(client, admin_headers):
+    """Master Data is now the asset module; locations moved to User Management."""
     response = client.get("/api/dashboard/modules/master-data", headers=admin_headers)
     assert response.status_code == 200
     payload = response.json()
-    assert payload["module"]["status"] == "Foundation"
-    assert payload["module"]["permission"] == "locations:read"
+    assert payload["module"]["permission"] == "assets:read"
     assert payload["kpis"]
     assert payload["quick_links"]
+    labels = [kpi["label"] for kpi in payload["kpis"]]
+    assert "Total assets" in labels
+    assert "Calibration charts" in labels
+    # Every hard-coded asset type is reported, even with no assets yet.
+    breakdown_labels = [item["label"] for item in payload["breakdown"]]
+    for expected in (
+        "Storage Tank",
+        "Barge",
+        "Shuttle Vessel",
+        "FSO",
+        "Prime Mover",
+        "Tanker Trailer",
+        "Flowmeter",
+    ):
+        assert expected in breakdown_labels
+
+
+def test_user_management_dashboard_includes_locations(client, admin_headers):
+    """Location Master and Role Location now live under User Management."""
+    response = client.get("/api/dashboard/modules/user-management", headers=admin_headers)
+    assert response.status_code == 200
+    payload = response.json()
+    labels = [kpi["label"] for kpi in payload["kpis"]]
+    assert "Locations" in labels
+    paths = [link["path"] for link in payload["quick_links"]]
+    assert "/locations" in paths
+    assert "/role-locations" in paths
+    # The ordering the owner specified for the User Management group.
+    assert paths.index("/users") < paths.index("/roles") < paths.index("/locations")
+    assert paths.index("/locations") < paths.index("/role-permissions")
+    assert paths.index("/role-permissions") < paths.index("/role-locations")
+    assert paths.index("/role-locations") < paths.index("/user-roles")
+
+
+def test_location_permission_is_catalogued_under_user_management(client, admin_headers):
+    """Location Master moved to User Management; Asset Master owns Master Data."""
+    response = client.get("/api/permissions/catalog", headers=admin_headers)
+    assert response.status_code == 200
+    categories = response.json()["categories"]
+
+    modules_by_category = {
+        category["category"]: [module["module_name"] for module in category["modules"]]
+        for category in categories
+    }
+    assert "Location Master" in modules_by_category["User Management"]
+    assert "Asset Master" in modules_by_category["Master Data Management"]
+    assert "Location Master" not in modules_by_category["Master Data Management"]
+
+    asset_modules = next(
+        module
+        for category in categories
+        if category["category"] == "Master Data Management"
+        for module in category["modules"]
+        if module["module_name"] == "Asset Master"
+    )
+    actions = {permission["action"] for permission in asset_modules["permissions"]}
+    assert actions == {"read", "create", "update", "delete"}

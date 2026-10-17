@@ -141,7 +141,7 @@ export default function Locations() {
 
   return (
     <div className="page">
-      <PageHead eyebrow="MASTER DATA / LOCATION MASTER" title="Location Master" description="Configure operational locations and their parent hierarchy. Active locations can be assigned to roles; deactivation preserves master history." actions={<>{canViewRoleLocations && <Link to="/role-locations" className="btn btn-secondary"><Icon name="mapPin" size={15} /> Role locations</Link>}{canCreate && <button type="button" className="btn btn-primary" onClick={() => { setEditingLocation(null); setShowDialog(true); setNotice('') }}><Icon name="mapPin" size={15} /> Add location</button>}<button type="button" className="btn btn-secondary" onClick={load} disabled={loading}><Icon name="refresh" size={15} /> Refresh</button></>} />
+      <PageHead eyebrow="USER MANAGEMENT / LOCATION MASTER" title="Location Master" description="Configure operational locations and their parent hierarchy. Active locations can be assigned to roles; deactivation preserves master history." actions={<>{canViewRoleLocations && <Link to="/role-locations" className="btn btn-secondary"><Icon name="mapPin" size={15} /> Role locations</Link>}{canCreate && <button type="button" className="btn btn-primary" onClick={() => { setEditingLocation(null); setShowDialog(true); setNotice('') }}><Icon name="mapPin" size={15} /> Add location</button>}<button type="button" className="btn btn-secondary" onClick={load} disabled={loading}><Icon name="refresh" size={15} /> Refresh</button></>} />
       {error && <Alert tone="danger">{error}</Alert>}{notice && <Alert tone="success">{notice}</Alert>}
 
       <section className="card">

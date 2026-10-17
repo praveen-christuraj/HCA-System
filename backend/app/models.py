@@ -10,9 +10,11 @@ from __future__ import annotations
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -339,3 +341,173 @@ class AuditLog(Base):
     details_summary = Column(Text, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+
+# ---------------------------------------------------------------------------
+# Master data — assets, tanks and calibration
+#
+# Asset types are hard coded in ``app.utils.asset_types`` (owner decision
+# 2026-10-17): there is deliberately no ``asset_types`` table, so the seven
+# hydrocarbon asset classes cannot be renamed or deleted at runtime.
+#
+# Calibration rows are typed columns, never a JSON document (owner rule 4).
+# OTMS stored each row as ``row_data JSONB`` keyed by user-invented template
+# column names, so nothing downstream could rely on a field existing. HCA
+# fixes the chart shape at three columns — tank name, dip/ullage, volume — and
+# stores the canonical cm/bbl value next to the value as it was supplied.
+# ---------------------------------------------------------------------------
+class Asset(Base):
+    """A physical asset, scoped to a hard-coded asset type and a location."""
+
+    __tablename__ = "assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    asset_name = Column(String(150), nullable=False, index=True)
+    asset_code = Column(String(80), nullable=False, unique=True, index=True)
+    asset_type_code = Column(String(50), nullable=False, index=True)
+    asset_scope = Column(String(10), nullable=False, default="Local", index=True)
+    location_id = Column(
+        Integer,
+        ForeignKey("locations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    calibration_required = Column(Boolean, nullable=False, default=True)
+    dip_unit = Column(String(10), nullable=False, default="cm")
+    volume_unit = Column(String(10), nullable=False, default="bbl")
+
+    serial_number = Column(String(100), nullable=True)
+    manufacturer = Column(String(150), nullable=True)
+    model = Column(String(150), nullable=True)
+    commission_date = Column(Date, nullable=True)
+    description = Column(Text, nullable=True)
+
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    location = relationship("Location")
+    tanks = relationship(
+        "AssetTank",
+        back_populates="asset",
+        cascade="all, delete-orphan",
+        order_by="AssetTank.sort_order",
+    )
+    calibration_table = relationship(
+        "AssetCalibrationTable",
+        back_populates="asset",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+class AssetTank(Base):
+    """A tank or compartment belonging to an asset.
+
+    Tanks are declared while the asset is created, because a barge or FSO
+    carries several and the calibration chart is keyed by these exact names.
+    """
+
+    __tablename__ = "asset_tanks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    asset_id = Column(
+        Integer,
+        ForeignKey("assets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tank_name = Column(String(120), nullable=False)
+    tank_code = Column(String(50), nullable=True)
+    sort_order = Column(Integer, nullable=False, default=1)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    asset = relationship("Asset", back_populates="tanks")
+
+    __table_args__ = (
+        UniqueConstraint("asset_id", "tank_name", name="unique_tank_name_per_asset"),
+    )
+
+
+class AssetCalibrationTable(Base):
+    """The single active calibration chart of an asset.
+
+    One chart per asset (owner decision 2026-10-17): uploading a new chart
+    replaces the rows of the previous one. The chart covers every tank of the
+    asset, which is what makes the tank name the third interpolation axis.
+    """
+
+    __tablename__ = "asset_calibration_tables"
+
+    id = Column(Integer, primary_key=True, index=True)
+    asset_id = Column(
+        Integer,
+        ForeignKey("assets.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    chart_name = Column(String(150), nullable=False)
+    measurement_basis = Column(String(10), nullable=False, default="Dip")
+    source_dip_unit = Column(String(10), nullable=False, default="cm")
+    source_volume_unit = Column(String(10), nullable=False, default="bbl")
+    source_file_name = Column(String(255), nullable=True)
+    effective_date = Column(Date, nullable=True)
+    remarks = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    asset = relationship("Asset", back_populates="calibration_table")
+    rows = relationship(
+        "AssetCalibrationRow",
+        back_populates="calibration_table",
+        cascade="all, delete-orphan",
+        order_by="AssetCalibrationRow.tank_id, AssetCalibrationRow.dip_cm",
+    )
+
+
+class AssetCalibrationRow(Base):
+    """One dip/volume point of one tank, stored in canonical cm and bbl.
+
+    ``dip_cm`` holds dip *or* ullage in centimetres, following the parent
+    chart's ``measurement_basis``; every payload that exposes it also exposes
+    the basis so the value can never be misread. ``source_dip_value`` and
+    ``source_volume_value`` keep the numbers exactly as the calibration chart
+    supplied them, so an auditor can verify the conversion.
+    """
+
+    __tablename__ = "asset_calibration_rows"
+
+    id = Column(Integer, primary_key=True, index=True)
+    calibration_table_id = Column(
+        Integer,
+        ForeignKey("asset_calibration_tables.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tank_id = Column(
+        Integer,
+        ForeignKey("asset_tanks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    row_number = Column(Integer, nullable=False, default=1)
+    dip_cm = Column(Numeric(14, 4), nullable=False)
+    volume_bbl = Column(Numeric(16, 6), nullable=False)
+    source_dip_value = Column(Numeric(14, 4), nullable=True)
+    source_volume_value = Column(Numeric(16, 6), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    calibration_table = relationship("AssetCalibrationTable", back_populates="rows")
+    tank = relationship("AssetTank")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "calibration_table_id",
+            "tank_id",
+            "dip_cm",
+            name="unique_calibration_point_per_tank",
+        ),
+    )

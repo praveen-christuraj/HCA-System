@@ -117,6 +117,32 @@ def require_any_permission(*permission_names: str):
     return dependency
 
 
+def get_user_location_ids(db: Session, user: User) -> set[int] | None:
+    """Location ids a user may act on, or ``None`` when unrestricted.
+
+    Administrators and users with no role-location configuration are
+    unrestricted, which keeps the existing modules working unchanged. Once a
+    role is given locations, its members see only those locations plus anything
+    scoped ``Global``.
+    """
+    from app.models import RoleLocation
+
+    if is_admin_user(user, db):
+        return None
+
+    role_ids = get_user_role_ids(db, user)
+    if not role_ids:
+        return set()
+
+    rows = (
+        db.query(RoleLocation.location_id)
+        .filter(RoleLocation.role_id.in_(role_ids))
+        .distinct()
+        .all()
+    )
+    return {int(location_id) for (location_id,) in rows}
+
+
 def get_user_permission_rows(db: Session, user: User) -> list[Permission]:
     if is_admin_user(user, db):
         return (
