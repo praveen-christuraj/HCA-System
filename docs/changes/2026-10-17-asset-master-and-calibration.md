@@ -139,6 +139,19 @@ asset; a new upload replaces it and the audit row records the row count and char
   wide sheet, an undeclared-tank rejection, and a register import whose `Barge` alias
   folds onto the fixed `BARGE` code.
 
+## Follow-up fix: location deactivation guard
+
+Adding `assets.location_id` left `DELETE /api/locations/{id}` unaware of assets. It kept its
+guards for active child locations and role-location assignments but had none for assets, so a
+location could be deactivated while an Active `Local` asset still pointed at it. That asset was
+then stuck: `assets._validate_scope` runs on update as well as create, so the record could not
+be edited or moved through the API at all.
+
+`deactivate_location` now returns `409` when Active assets sit on the location, in the same
+style as the two guards beside it. Global assets hold no location and never block. Two
+regression tests cover both halves — the block, with the location confirmed still `Active`, and
+the release once the asset is retired.
+
 ## Not verified in this delivery
 
 - Manual light/dark visual review of the two new pages in a browser.
