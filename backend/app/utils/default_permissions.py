@@ -59,6 +59,17 @@ RESOURCE_PERMISSION_DEFINITIONS = [
         "actions": (READ, CREATE, UPDATE, DELETE),
     },
     {
+        # Named, reusable permission sets (capped at MAX_PERMISSION_PRESETS)
+        # that are applied to roles instead of ticking permissions one by one.
+        # Applying a preset to a role is an assignment write and additionally
+        # requires the shared ``assignments:write`` capability.
+        "resource": "permission_presets",
+        "module_name": "Permission Presets",
+        "category": "User Management",
+        "label": "reusable permission presets",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
         "resource": "assignments",
         "module_name": "Assignments",
         "category": "User Management",

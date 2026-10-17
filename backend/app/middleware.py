@@ -27,6 +27,7 @@ PATH_MODULES = [
     ("/api/role-locations", "Role Location Assignment", "Administration"),
     ("/api/user-roles", "User Role Assignment", "Administration"),
     ("/api/permissions", "Permission Master", "Data Change"),
+    ("/api/permission-presets", "Permission Presets", "Administration"),
     ("/api/audit-logs", "Audit Trail", "Auditing"),
     ("/api/audit/ui-events", "UI Activity", "Navigation"),
     ("/api/dashboard", "Dashboard", "Navigation"),

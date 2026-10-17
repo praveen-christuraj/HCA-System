@@ -24,10 +24,12 @@ from app.models import (
     Location,
     PasswordResetRequest,
     Permission,
+    PermissionPreset,
     Role,
     RoleLocation,
     User,
 )
+from app.config import MAX_PERMISSION_PRESETS
 from app.services.serializers import audit_to_dict, user_to_dict
 from app.utils.asset_types import asset_type_catalog
 from app.utils.time import utcnow
@@ -38,6 +40,7 @@ USER_MODULES = (
     "User Master",
     "Role Master",
     "Permission Master",
+    "Permission Presets",
     "Role Permission Assignment",
     "User Role Assignment",
     "Profile & Security",
@@ -80,6 +83,13 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
     location_total = db.query(func.count(Location.id)).scalar() or 0
     location_active = db.query(func.count(Location.id)).filter(Location.status == "Active").scalar() or 0
     role_location_total = db.query(func.count(RoleLocation.id)).scalar() or 0
+    preset_total = db.query(func.count(PermissionPreset.id)).scalar() or 0
+    preset_active = (
+        db.query(func.count(PermissionPreset.id))
+        .filter(PermissionPreset.status == "Active")
+        .scalar()
+        or 0
+    )
     asset_total = db.query(func.count(Asset.id)).scalar() or 0
     asset_active = db.query(func.count(Asset.id)).filter(Asset.status == "Active").scalar() or 0
     tank_total = db.query(func.count(AssetTank.id)).scalar() or 0
@@ -100,7 +110,7 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 {"label": "Users", "value": user_total},
                 {"label": "Active users", "value": user_active},
                 {"label": "Roles", "value": role_total},
-                {"label": "Locations", "value": location_total},
+                {"label": "Permission presets", "value": f"{preset_active} / {preset_total}"},
             ],
         },
         {
@@ -332,6 +342,16 @@ def module_dashboard(
             db.query(func.count(Location.id)).filter(Location.status == "Active").scalar() or 0
         )
         role_locations_total = db.query(func.count(RoleLocation.id)).scalar() or 0
+        presets_total = db.query(func.count(PermissionPreset.id)).scalar() or 0
+        presets_active = (
+            db.query(func.count(PermissionPreset.id))
+            .filter(PermissionPreset.status == "Active")
+            .scalar()
+            or 0
+        )
+        preset_applications = (
+            db.query(func.coalesce(func.sum(PermissionPreset.times_applied), 0)).scalar() or 0
+        )
 
         kpis = [
             {"label": "Total users", "value": users_total, "context": "All accounts"},
@@ -340,6 +360,11 @@ def module_dashboard(
             {"label": "Locked accounts", "value": users_locked, "context": "Temporary lockout"},
             {"label": "Locations", "value": f"{locations_active} / {locations_total}", "context": "Active / total"},
             {"label": "Roles / permissions", "value": f"{roles_total} / {permissions_total}", "context": "RBAC catalog"},
+            {
+                "label": "Permission presets",
+                "value": f"{presets_active} / {MAX_PERMISSION_PRESETS}",
+                "context": f"{presets_total} saved, {preset_applications} applications",
+            },
         ]
         status_rows = (
             db.query(User.status, func.count(User.id)).group_by(User.status).all()
@@ -352,6 +377,11 @@ def module_dashboard(
             {"label": "User Master", "path": "/users", "permission": "users:read"},
             {"label": "Role Master", "path": "/roles", "permission": "roles:read"},
             {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
+            {
+                "label": "Permission Presets",
+                "path": "/permission-presets",
+                "permission": "permission_presets:read",
+            },
             {
                 "label": "Role Permission Assignment",
                 "path": "/role-permissions",

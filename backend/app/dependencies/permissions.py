@@ -117,6 +117,32 @@ def require_any_permission(*permission_names: str):
     return dependency
 
 
+def require_all_permissions(*permission_names: str):
+    """Dependency factory: require every listed permission.
+
+    Used where an action belongs to two capabilities at once — applying a
+    permission preset reads the preset catalog (``permission_presets:read``) and
+    writes role grants (``assignments:write``).
+    """
+
+    def dependency(
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if is_admin_user(user, db):
+            return user
+        held = {name.casefold() for name in get_user_permissions(db, user)}
+        missing = [name for name in permission_names if name.casefold() not in held]
+        if missing:
+            raise HTTPException(
+                status_code=403,
+                detail="Permission required: " + ", ".join(missing),
+            )
+        return user
+
+    return dependency
+
+
 def get_user_location_ids(db: Session, user: User) -> set[int] | None:
     """Location ids a user may act on, or ``None`` when unrestricted.
 

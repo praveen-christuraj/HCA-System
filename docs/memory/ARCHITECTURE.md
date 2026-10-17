@@ -138,7 +138,8 @@ permissions by module and is used by:
 
 Page permissions use only standard `resource:action` keys (`read`, `create`, `update`,
 `delete`). `assignments:write` is the shared write capability for cross-page assignment
-modules. Every page resource must be added to `RESOURCE_PERMISSION_DEFINITIONS` before its
+modules. An action that belongs to two capabilities at once uses `require_all_permissions` —
+applying a permission preset needs `permission_presets:read` **and** `assignments:write`. Every page resource must be added to `RESOURCE_PERMISSION_DEFINITIONS` before its
 API/UI is implemented; startup bootstrap provisions the catalog idempotently. List/detail/export
 use `read`, create/import use `create`, and edits/soft-deactivation use `update`. Dashboard,
 profile, audit, security and system pages are registered as standard resources too. Bootstrap
@@ -185,7 +186,8 @@ read-only and itself permission-gated.
 - Booleans are real `BOOLEAN` columns (not `"Yes"/"No"` strings).
 - Enumerations are short `VARCHAR` columns with documented values (e.g. `Active`, `Inactive`,
   `Locked`). A lookup table is used when the values are user-managed.
-- Collections are child tables (`user_backup_codes`, `role_permissions`, `user_roles`, …).
+- Collections are child tables (`user_backup_codes`, `role_permissions`, `user_roles`,
+  `permission_preset_items`, …).
 - Soft delete is represented by an explicit nullable `deleted_at` (and `deleted_by`) column on
   master data, never by a JSON flag.
 - No `JSON`, `JSONB`, `HSTORE`, serialized pickle or document columns.
@@ -195,6 +197,11 @@ read-only and itself permission-gated.
 `Asset` carries the hard-coded `asset_type_code` (no `asset_types` table — see ADR-014),
 `asset_scope` (`Local`/`Global`) and a nullable `location_id` that is mandatory for `Local`
 assets. `AssetTank` is a child table unique on `(asset_id, tank_name)`.
+
+`PermissionPreset` is a named, reusable template of standard permissions, capped at
+`MAX_PERMISSION_PRESETS` (default 20) with one `PermissionPresetItem` row per permission. Applying
+a preset copies its permission ids into `role_permissions`; no role keeps a foreign key to a
+preset, so effective access is always resolved from `role_permissions` alone (ADR-018).
 
 `AssetCalibrationTable` is one active chart per asset; `AssetCalibrationRow` stores each point as
 typed `Numeric` columns — `dip_cm` and `volume_bbl` in canonical units, plus

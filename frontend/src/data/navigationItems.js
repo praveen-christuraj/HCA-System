@@ -26,6 +26,12 @@ export const navigationItems = [
       { label: 'Role Master', path: '/roles', permission: 'roles:read' },
       { label: 'Location Master', path: '/locations', permission: 'locations:read' },
       {
+        // Named, reusable permission sets (capped at 20) applied to roles.
+        label: 'Permission Presets',
+        path: '/permission-presets',
+        permission: 'permission_presets:read',
+      },
+      {
         label: 'Role Permission Assignment',
         path: '/role-permissions',
         allPermissions: ['roles:read', 'permissions:read'],
@@ -101,6 +107,7 @@ export const hiddenRouteLabels = {
   '/users': 'User Master',
   '/roles': 'Role Master',
   '/locations': 'Location Master',
+  '/permission-presets': 'Permission Presets',
   '/role-permissions': 'Role Permission Assignment',
   '/role-locations': 'Role Location Assignment',
   '/user-roles': 'User Role Assignment',

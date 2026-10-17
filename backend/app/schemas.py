@@ -65,6 +65,37 @@ class RolePermissionUpdate(BaseModel):
     permission_ids: list[int] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# Permission presets
+#
+# A preset is a named set of standard permissions that can be applied to one or
+# many roles. Presets are capped (``MAX_PERMISSION_PRESETS``, default 20) and
+# must always contain at least one permission, so applying one can never strip
+# a role's grants by accident.
+# ---------------------------------------------------------------------------
+class PermissionPresetCreate(BaseModel):
+    preset_name: str = Field(min_length=2, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=500)
+    permission_ids: list[int] = Field(min_length=1, max_length=500)
+    status: Literal["Active", "Inactive"] = "Active"
+
+
+class PermissionPresetUpdate(BaseModel):
+    preset_name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=500)
+    permission_ids: Optional[list[int]] = Field(default=None, min_length=1, max_length=500)
+    status: Optional[Literal["Active", "Inactive"]] = None
+
+
+class PermissionPresetApply(BaseModel):
+    """Apply one preset to a bounded set of roles."""
+
+    role_ids: list[int] = Field(min_length=1, max_length=200)
+    # ``replace`` sets the role's grants to exactly the preset; ``add`` merges
+    # the preset into the existing grants and never removes a permission.
+    mode: Literal["replace", "add"] = "replace"
+
+
 class UserRolesUpdate(BaseModel):
     role_ids: list[int] = Field(default_factory=list)
 

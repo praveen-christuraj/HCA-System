@@ -10,6 +10,7 @@ from app.models import (
     AuditLog,
     Location,
     Permission,
+    PermissionPreset,
     Role,
     User,
 )
@@ -55,6 +56,53 @@ def permission_to_dict(permission: Permission) -> dict:
         "description": permission.description or "",
         "status": permission.status,
     }
+
+
+def permission_preset_to_dict(
+    preset: PermissionPreset,
+    *,
+    include_permissions: bool = False,
+) -> dict:
+    """Serialise a preset and, optionally, the permissions it contains.
+
+    ``permission_count`` counts only permissions that are still active in the
+    catalog, because those are the ones an apply can actually grant; the
+    deactivated ones are reported separately so the UI can warn instead of
+    silently shrinking a role's access.
+    """
+    items = sorted(
+        preset.items,
+        key=lambda item: (
+            str(getattr(item.permission, "category", "") or ""),
+            str(getattr(item.permission, "module_name", "") or ""),
+            str(getattr(item.permission, "permission_name", "") or ""),
+        ),
+    )
+    permissions = [item.permission for item in items if item.permission is not None]
+    active = [permission for permission in permissions if permission.status == "Active"]
+    modules = sorted({permission.module_name for permission in active})
+    payload = {
+        "id": preset.id,
+        "preset_name": preset.preset_name,
+        "description": preset.description or "",
+        "status": preset.status,
+        "permission_count": len(active),
+        "inactive_permission_count": len(permissions) - len(active),
+        "module_count": len(modules),
+        "modules": modules,
+        "times_applied": int(preset.times_applied or 0),
+        "last_applied_at": preset.last_applied_at,
+        "created_by_user_id": preset.created_by_user_id,
+        "created_by_name": preset.created_by.full_name if preset.created_by else "",
+        "updated_by_user_id": preset.updated_by_user_id,
+        "created_at": preset.created_at,
+        "updated_at": preset.updated_at,
+    }
+    if include_permissions:
+        payload["permission_ids"] = [permission.id for permission in permissions]
+        payload["active_permission_ids"] = [permission.id for permission in active]
+        payload["permissions"] = [permission_to_dict(permission) for permission in permissions]
+    return payload
 
 
 def user_to_dict(user: User, include_roles: bool = True) -> dict:

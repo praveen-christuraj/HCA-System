@@ -9,6 +9,7 @@ import Home from './pages/Home'
 import LoginPage from './pages/LoginPage'
 import ModuleDashboard from './pages/ModuleDashboard'
 import NotFound from './pages/NotFound'
+import PermissionPresets from './pages/PermissionPresets'
 import AssetCalibration from './pages/AssetCalibration'
 import Assets from './pages/Assets'
 import Locations from './pages/Locations'
@@ -111,6 +112,14 @@ function App() {
               element={
                 <PermissionGuard loggedInUser={loggedInUser} requiredPermission="locations:read">
                   <Locations />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/permission-presets"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="permission_presets:read">
+                  <PermissionPresets />
                 </PermissionGuard>
               }
             />

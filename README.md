@@ -6,8 +6,9 @@ additional logic, following the permanent project memory in [`docs/memory/`](doc
 - Architecture: FastAPI + SQLAlchemy + PostgreSQL, React + Vite, JWT auth, RBAC, audited by
   default, top-side navigation, navy/white enterprise UI.
 - Current increment: **v0.1 — authenticated foundation, mirrored login page, module dashboards,
-  User Master (list, filters, detail, CSV/XLSX import, CSV/XLSX/PDF export), Audit Trail and
-  roles/permissions APIs, all audited and permission-gated.**
+  User Master (list, filters, detail, CSV/XLSX import, CSV/XLSX/PDF export), Asset Master and
+  Calibration, Audit Trail, roles/permissions APIs and named Permission Presets (up to 20 reusable
+  permission sets applied to roles in replace/add mode), all audited and permission-gated.**
 - Honest delivery status: [`docs/memory/MODULES.md`](docs/memory/MODULES.md).
 
 ## Quick start with Docker (OTMS deployment method)
