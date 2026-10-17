@@ -5,6 +5,34 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-17 — Fix: a location could be deactivated out from under an active asset
+
+**Note:** [`changes/2026-10-17-asset-master-and-calibration.md`](changes/2026-10-17-asset-master-and-calibration.md)
+
+Follow-up to the Asset Master delivery. Adding the `assets.location_id` foreign key left
+`DELETE /api/locations/{id}` unaware of assets, so it kept its existing guards for active child
+locations and role-location assignments but had none for assets.
+
+**The bug.** Deactivating a location that still held an Active `Local` asset returned `200`.
+The asset was left `Active`, `Local`, and pointing at a now-`Inactive` location — exactly the
+state `assets._validate_scope` refuses on create *and* on update. The record became uneditable:
+any subsequent `PUT` re-validated scope and was rejected, so the asset could not even be moved
+somewhere else through the API.
+
+**The fix.** `deactivate_location` now counts Active assets on the location and returns `409`
+with `Deactivate or reassign active assets at this location first`, matching the wording and
+behaviour of the two guards already beside it. Global assets hold no location and so never
+block. Verified: the location is left untouched (`Active`) when the guard fires, and once the
+asset is retired the location deactivates normally.
+
+**Verification**
+
+- `cd backend && ./.venv/bin/python -m pytest -q` → `72 passed, 1 warning` (two new regression
+  tests: an active asset blocks deactivation and the location stays `Active`; a Global asset
+  does not block it).
+- `cd frontend && npm run build` → success. The Location Master page already surfaces a failed
+  delete through its inline alert, so the new `409` reaches the user with no frontend change.
+
 ## 2026-10-17 — User Management regrouping; Asset Master and Asset Calibration
 
 **Note:** [`changes/2026-10-17-asset-master-and-calibration.md`](changes/2026-10-17-asset-master-and-calibration.md)

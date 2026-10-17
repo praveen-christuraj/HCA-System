@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.config import MAX_EXPORT_ROWS
 from app.database import get_db
 from app.dependencies.permissions import require_permission
-from app.models import Location, RoleLocation, User
+from app.models import Asset, Location, RoleLocation, User
 from app.schemas import LocationCreate, LocationUpdate
 from app.services.audit_service import create_audit_log
 from app.services.master_import import read_master_import
@@ -583,6 +583,16 @@ def deactivate_location(
     assignment_count = db.query(RoleLocation.id).filter(RoleLocation.location_id == location.id).count()
     if assignment_count:
         raise HTTPException(status_code=409, detail="Remove role location assignments before deactivating this location")
+    # A Local asset may only sit on an Active location (see assets._validate_scope).
+    # Without this guard the location could be withdrawn from underneath an asset
+    # that still points at it, leaving a record the asset router refuses to create
+    # and, because update re-validates scope, refuses to edit either.
+    active_asset_count = db.query(Asset.id).filter(
+        Asset.location_id == location.id,
+        Asset.status == "Active",
+    ).count()
+    if active_asset_count:
+        raise HTTPException(status_code=409, detail="Deactivate or reassign active assets at this location first")
 
     old_status = location.status
     location.status = "Inactive"

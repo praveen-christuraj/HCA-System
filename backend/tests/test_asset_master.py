@@ -1324,3 +1324,111 @@ def test_location_scoped_user_sees_only_global_and_own_locations(client, admin_h
     assert client.get(f"/api/assets/{at_home['id']}", headers=scoped).status_code == 200
     assert client.get(f"/api/assets/{shared['id']}", headers=scoped).status_code == 200
     assert client.get(f"/api/assets/{far_away['id']}", headers=scoped).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Location lifecycle interacts with assets
+# ---------------------------------------------------------------------------
+def test_location_holding_an_active_asset_cannot_be_deactivated(client, admin_headers):
+    """A Local asset may only sit on an Active location.
+
+    The asset router enforces that on create and on update, so deactivating the
+    location underneath a live asset would leave a record the API refuses to
+    create and refuses to edit. The location endpoint has to hold the same line.
+    """
+    location_response = client.post(
+        "/api/locations",
+        json={
+            "location_name": "Guarded Terminal",
+            "location_code": "ASSET-LOCGUARD-01",
+            "location_type": "Terminal",
+        },
+        headers=admin_headers,
+    )
+    assert location_response.status_code == 201, location_response.text
+    location = location_response.json()
+
+    asset_response = client.post(
+        "/api/assets",
+        json={
+            "asset_name": "Guarded Barge",
+            "asset_code": "BRG-LOCGUARD-01",
+            "asset_type_code": "BARGE",
+            "asset_scope": "Local",
+            "location_id": location["id"],
+            "calibration_required": False,
+        },
+        headers=admin_headers,
+    )
+    assert asset_response.status_code == 201, asset_response.text
+    asset = asset_response.json()
+    assert asset["status"] == "Active"
+    assert asset["location_id"] == location["id"]
+
+    blocked = client.delete(f"/api/locations/{location['id']}", headers=admin_headers)
+    assert blocked.status_code == 409
+    assert "active assets" in blocked.json()["detail"]
+
+    # The location must be untouched, not half-deactivated.
+    listed = client.get(
+        "/api/locations",
+        params={"search": "ASSET-LOCGUARD-01", "page_size": 50},
+        headers=admin_headers,
+    ).json()
+    current = next(item for item in listed["items"] if item["id"] == location["id"])
+    assert current["status"] == "Active"
+
+    # Once the asset is retired the location is free to go.
+    retired = client.put(
+        f"/api/assets/{asset['id']}",
+        json={
+            "asset_name": asset["asset_name"],
+            "asset_code": asset["asset_code"],
+            "asset_type_code": "BARGE",
+            "asset_scope": "Local",
+            "location_id": location["id"],
+            "calibration_required": False,
+            "status": "Inactive",
+        },
+        headers=admin_headers,
+    )
+    assert retired.status_code == 200, retired.text
+
+    allowed = client.delete(f"/api/locations/{location['id']}", headers=admin_headers)
+    assert allowed.status_code == 200, allowed.text
+
+    listed_after = client.get(
+        "/api/locations",
+        params={"search": "ASSET-LOCGUARD-01", "page_size": 50},
+        headers=admin_headers,
+    ).json()
+    after = next(item for item in listed_after["items"] if item["id"] == location["id"])
+    assert after["status"] == "Inactive"
+
+
+def test_global_asset_does_not_block_location_deactivation(client, admin_headers):
+    """A Global asset holds no location, so it cannot pin one down."""
+    location = client.post(
+        "/api/locations",
+        json={
+            "location_name": "Free Terminal",
+            "location_code": "ASSET-FREE-01",
+            "location_type": "Terminal",
+        },
+        headers=admin_headers,
+    ).json()
+    global_asset = client.post(
+        "/api/assets",
+        json={
+            "asset_name": "Free Global Flowmeter",
+            "asset_code": "FLW-FREE-01",
+            "asset_type_code": "FLOWMETER",
+            "asset_scope": "Global",
+            "calibration_required": False,
+        },
+        headers=admin_headers,
+    )
+    assert global_asset.status_code == 201, global_asset.text
+
+    response = client.delete(f"/api/locations/{location['id']}", headers=admin_headers)
+    assert response.status_code == 200, response.text
