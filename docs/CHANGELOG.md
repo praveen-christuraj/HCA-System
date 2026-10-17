@@ -27,7 +27,9 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 - Live HTTP smoke test through uvicorn + the Vite proxy → 36/36 checks, including 750 mm → 7.5 bbl interpolation, 1P/2P tank-axis separation, mm+litre → cm+bbl conversion (1589.87294928 L → exactly 10 bbl), out-of-range refusal then flagged clamp, and wide-layout import.
 - XLSX uploads covered by generated workbooks: a long sheet in m and kL converting to canonical cm and bbl, a multi-tank wide sheet, an undeclared-tank rejection, and an XLSX asset register import.
 - Location scoping covered: a user whose role has location assignments sees only those locations plus Global assets, and is refused a single-asset read outside them.
-- Not verified: manual light/dark review of the two new pages in a browser, and PostgreSQL schema creation for the four new tables (tests run on SQLite; `create_all` runs at startup and no Alembic baseline exists yet).
+- The four new tables compile through SQLAlchemy's PostgreSQL dialect to well-formed DDL (bounded `VARCHAR`s, `NUMERIC(14,4)`/`NUMERIC(16,6)` canonical columns, both unique constraints surviving as named constraints, no JSON type).
+- Frontend/backend field contract cross-checked against live responses: 58 snake_case field reads across the two new pages, none reading a field the API does not return.
+- Not verified: manual light/dark review of the two new pages in a browser (no browser binary is installable in this sandbox), and `create_all` against a live PostgreSQL server (the dialect DDL was checked; no server binary is available to run it).
 
 ## 2026-10-17 — User, Role and Location Master modules
 

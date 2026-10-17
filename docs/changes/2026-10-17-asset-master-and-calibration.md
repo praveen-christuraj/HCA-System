@@ -123,6 +123,14 @@ asset; a new upload replaces it and the audit row records the row count and char
   both module dashboards and the permission catalog placement.
 - Vite dev server serves the SPA and proxies `/api` to the backend (`/api/health` → ok, login →
   token).
+- The four new tables compile through SQLAlchemy's PostgreSQL dialect to well-formed DDL:
+  every `String` is a bounded `VARCHAR`, the canonical columns are `NUMERIC(14,4)` and
+  `NUMERIC(16,6)`, both unique constraints survive as named constraints, and no JSON type
+  appears. This checks the DDL the server would receive, not a live `create_all`.
+- Every field the two new pages read was cross-checked against live API responses: 20
+  snake_case field reads in `Assets.jsx` and 38 in `AssetCalibration.jsx`, with no read of a
+  field the backend does not return, and every list read off API data is either guaranteed
+  present-and-typed by the serializer or rendered behind a guard.
 - Location-scope enforcement for non-admin users: a user whose role has location
   assignments sees only those locations plus Global assets, and a single-asset read
   outside them returns 404 rather than leaking the record.
@@ -134,5 +142,9 @@ asset; a new upload replaces it and the audit row records the row count and char
 ## Not verified in this delivery
 
 - Manual light/dark visual review of the two new pages in a browser.
-- PostgreSQL schema creation for the four new tables (tests run on SQLite; `create_all` runs at
-  startup and no Alembic baseline exists yet).
+- PostgreSQL schema creation against a live server. The four new tables were compiled through
+  SQLAlchemy's PostgreSQL dialect and the emitted DDL is well formed (bounded `VARCHAR` lengths
+  throughout, `NUMERIC(14,4)` / `NUMERIC(16,6)` for the canonical columns, both unique
+  constraints surviving as named constraints, `ON DELETE CASCADE` on the child tables, no JSON
+  type anywhere), but the sandbox has no PostgreSQL server binary, so `create_all` has not been
+  executed against one. Tests run on SQLite and no Alembic baseline exists yet.
