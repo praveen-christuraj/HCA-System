@@ -281,3 +281,36 @@ volumes is rejected rather than resolved arbitrarily.
 **Consequences.** Business modules can consume the same engine the UI uses, and every resolved
 volume can be defended from the audit trail. A chart that gains volume as the dip grows is
 reported as a warning at upload, since that usually means a transposed column.
+
+---
+
+## ADR-018 — Permission presets are a capped, named template catalog, not a second role layer
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** Maintaining many roles meant ticking the same standard permissions again for every
+role. The owner asked for named presets that can be applied to a role instead, with a maximum of
+20 presets and a name per preset. The obvious risk is that "presets" quietly become a second,
+parallel authorization layer: roles inheriting from templates, templates inheriting from other
+templates, and nobody able to say what a role can actually do.
+
+**Decision.** A preset is a *template*, not a grant. `permission_presets` holds one typed row per
+preset (name, description, status, `times_applied`, `last_applied_at`, creator) and
+`permission_preset_items` holds one row per permission in the preset — never a JSON array
+(rule 4). Applying a preset **copies** its permission ids into `role_permissions`; no foreign key
+from a role to a preset survives the copy, so a role's effective access is still read from
+`role_permissions` alone, exactly as before. The catalog is capped at `MAX_PERMISSION_PRESETS`
+(default 20) counted across every preset row, and each preset must contain at least one active
+permission. Application is an explicit `replace` or `add`, refused for the reserved Admin role and
+for inactive roles or presets, bounded at `MAX_PRESET_APPLY_ROLES` roles per request, and subject
+to the existing rule that a non-administrator may neither grant nor remove permissions they do not
+hold themselves. Presets are administered with the new standard `permission_presets:read/create/
+update/delete` capabilities; applying one additionally requires `assignments:write` because it
+writes role grants.
+
+**Consequences.** Roles stay flat and fully explainable — deactivating or editing a preset never
+changes a role that already received it, and the audit row per role records the preset name, mode
+and added/removed counts. Because a preset that has been applied is evidence of how live roles were
+shaped, `DELETE` deactivates by default; a permanent delete (which frees a cap slot) is allowed only
+while `times_applied` is zero. The cap keeps the list a curated set of templates rather than a
+shadow permission table, and the remaining-slot count is returned with every list response so the
+UI can say "18 of 20 free" instead of failing silently.

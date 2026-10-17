@@ -91,3 +91,15 @@ DEFAULT_PAGE_SIZE = 20
 PAGE_SIZE_OPTIONS = (20, 50, 100, 200)
 MAX_PAGE_SIZE = 500
 MAX_EXPORT_ROWS = 50_000
+
+# ---------------------------------------------------------------------------
+# Permission presets (RBAC administration)
+# ---------------------------------------------------------------------------
+# A preset is a named, reusable set of standard permissions that can be applied
+# to roles. The catalog is intentionally short and curated: the owner limit is
+# 20 presets, counted across every preset row (active and deactivated), so the
+# list never grows into a second permission table. Permanently deleting an
+# unused preset frees a slot.
+MAX_PERMISSION_PRESETS = int(os.getenv("MAX_PERMISSION_PRESETS", "20"))
+# Hard ceiling on roles changed by one preset application request.
+MAX_PRESET_APPLY_ROLES = int(os.getenv("MAX_PRESET_APPLY_ROLES", "200"))

@@ -27,6 +27,7 @@ from app.routers import (
     auth,
     dashboard,
     locations,
+    permission_presets,
     permissions,
     role_locations,
     roles,
@@ -98,6 +99,7 @@ app.include_router(assets.router, prefix=API_PREFIX)
 app.include_router(asset_calibration.router, prefix=API_PREFIX)
 app.include_router(user_roles.router, prefix=API_PREFIX)
 app.include_router(permissions.router, prefix=API_PREFIX)
+app.include_router(permission_presets.router, prefix=API_PREFIX)
 app.include_router(audit_logs.router, prefix=API_PREFIX)
 app.include_router(dashboard.router, prefix=API_PREFIX)
 

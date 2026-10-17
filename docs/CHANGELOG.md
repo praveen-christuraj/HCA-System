@@ -5,6 +5,29 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-17 — Permission Presets: named, reusable permission sets for roles
+
+**Note:** [`changes/2026-10-17-permission-presets.md`](changes/2026-10-17-permission-presets.md)
+
+| Area | Delivered |
+| --- | --- |
+| Permission Presets | New module for saving a named set of standard permissions once and applying it to a role — or up to 200 roles in one request — instead of ticking every permission for every role. The catalog is capped at **20 presets** (`MAX_PERMISSION_PRESETS`), every list response reports `presets_used` / `presets_remaining`, and a preset must always hold at least one active permission so an apply can never empty a role. |
+| Apply modes | `replace` sets a role's grants to exactly the preset; `add` merges the preset in and removes nothing. Every requested role is validated before any grant is written; the reserved Admin role, inactive roles and inactive presets are refused; re-applying in `add` mode is a no-op rather than a duplicate. Presets are templates only — applying copies ids into `role_permissions`, so effective access is still read from `role_permissions` alone (ADR-018). |
+| Data model | Typed `permission_presets` (unique name, description, status, `times_applied`, `last_applied_at`, creator/updater) plus the `permission_preset_items` child table, one row per permission, unique on `(preset_id, permission_id)`. No JSON columns; PostgreSQL DDL compiled and checked. |
+| API | `GET/POST /api/permission-presets`, `GET /options`, `GET/PUT/DELETE /{id}` (soft deactivate by default, `?permanent=true` only while never applied), `POST /{id}/apply`, `GET /export` (CSV/XLSX/PDF, filter-aware) and `POST /import` (CSV/XLSX preview-then-commit with per-row validation, including the remaining cap slots). Server pagination 20/50/100/200, quick search, status/module/contains-permission filters and a separate created-date range. |
+| RBAC / audit | New standard resource `permission_presets` (`read`, `create`, `update`, `delete`) registered in `RESOURCE_PERMISSION_DEFINITIONS`; bootstrap provisions it idempotently and grants it to Admin (catalog 26 → 30). Applying a preset additionally requires `assignments:write` through the new `require_all_permissions` dependency, and non-administrators still cannot grant or remove permissions they do not hold. Applying writes one audit row per role with preset name, mode and added/removed counts; create, update, deactivate, delete, import preview/commit and export are all audited, with the middleware mapping `/api/permission-presets` as a fallback. |
+| UI | New **Permission Presets** page under User Management (between Location Master and Role Permission Assignment): slot indicator, filters, pagination, three-format export, import preview, preset dialog with grouped permission picker, module select-all, "load permissions from a role" shortcut and inline validation; apply dialog with replace/add mode cards, searchable eligible-role list and an inline result summary; permanent delete behind a confirmation pop-up. Role Permission Assignment gains a **preset bar** that previews the exact delta and stages replace/add onto the selection for review before the existing audited save, plus **Save selection as preset**. |
+| Dashboards | User Management dashboard adds a `Permission presets` KPI (`active / 20`, saved count and total applications) and a Permission Presets quick link; the portfolio module card reports presets. |
+| Project memory | ADR-018 records why presets are capped templates rather than a second authorization layer, and the deactivate-vs-permanent-delete rule. |
+
+**Verification**
+
+- `cd backend && ./.venv/bin/python -m pytest -q` → `80 passed, 1 warning` (70 pre-existing + 10 new covering CRUD, validation, the 20-preset cap and slot release, filters/pagination, replace/add application to one and many roles, every apply guard, non-admin RBAC, import preview/commit and three-format export).
+- `cd frontend && npm run build` → success (Vite 8.3.4, 68 modules).
+- Live HTTP smoke test through uvicorn + the Vite proxy → **78/78 checks**, including replace-then-add application, the reserved-Admin and inactive-preset refusals, filling the catalog to exactly 20 and refusing the 21st, freeing a slot with a permanent delete, eight distinct audit actions and a non-admin viewer's audited 403s.
+- Temporary jsdom DOM harness against the real components (not committed) → **58/58 checks** on rendering, dialogs, picker counters, inline errors, apply-mode switching, request bodies and the Role Permission Assignment preset bar.
+- Not verified: manual light/dark browser review of the new page (no browser binary is installable in this sandbox) and `create_all` against a live PostgreSQL server (dialect DDL was compiled and checked instead).
+
 ## 2026-10-17 — User Management regrouping; Asset Master and Asset Calibration
 
 **Note:** [`changes/2026-10-17-asset-master-and-calibration.md`](changes/2026-10-17-asset-master-and-calibration.md)

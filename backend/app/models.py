@@ -167,6 +167,84 @@ class RolePermission(Base):
     )
 
 
+class PermissionPreset(Base):
+    """A named, reusable set of standard permissions.
+
+    Presets exist so an administrator can maintain many roles without ticking
+    permissions one by one: the preset is built once and then applied to a role
+    (replacing or adding to its current grants). The catalog is deliberately
+    capped (``MAX_PERMISSION_PRESETS``, default 20) so the list stays a short,
+    curated set of named templates instead of a second permission table.
+
+    Permissions are stored one row per grant in ``permission_preset_items``
+    (owner rule 4: no JSON arrays).
+    """
+
+    __tablename__ = "permission_presets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    preset_name = Column(String(120), nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+
+    times_applied = Column(Integer, nullable=False, default=0)
+    last_applied_at = Column(DateTime, nullable=True)
+
+    created_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    updated_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by = relationship("User", foreign_keys=[updated_by_user_id])
+    items = relationship(
+        "PermissionPresetItem",
+        back_populates="preset",
+        cascade="all, delete-orphan",
+    )
+
+
+class PermissionPresetItem(Base):
+    """One permission inside one preset (typed child table, never a JSON list)."""
+
+    __tablename__ = "permission_preset_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    preset_id = Column(
+        Integer,
+        ForeignKey("permission_presets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    permission_id = Column(
+        Integer,
+        ForeignKey("permissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    preset = relationship("PermissionPreset", back_populates="items")
+    permission = relationship("Permission")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "preset_id",
+            "permission_id",
+            name="unique_preset_permission",
+        ),
+    )
+
+
 class UserRole(Base):
     __tablename__ = "user_roles"
 
