@@ -355,3 +355,37 @@ operations without a join to any editable table. The category list is global: ev
 may use every category. Restricting categories per type is an open question for the owner. The
 OTMS Tracking Module Configuration, which maps operation types to BARGE/TANKER tracking, is not part
 of this delivery.
+
+
+---
+
+## ADR-020 — Operation Entry uses fixed OTMS payloads; no template customization
+**Date:** 2026-10-17 · **Status:** Accepted (owner request)
+
+**Decision.** The six module payloads are code-owned contracts in
+`app/utils/operation_entry_payloads.py`, rendered directly on one Operation Entry page. The
+source's Vessel Cycle (Shuttle) and Stock Movement (FSO) scalar-field layouts remain fixed
+alternatives. There is no editable Operation Template table, layout designer or arbitrary
+field/value persistence. Preserve the OTMS layout components' row/card order, unit controls,
+cautions, quick actions and numerical semantics; integrate them with the existing fixed HCA
+operation/asset catalogues and typed calibration schema rather than reintroducing runtime type
+or template customization.
+
+Payloads are transport only: typed header, module, stage, dip, seal and meter tables store them.
+The browser retains the original live formulas, the API recalculates on save, and golden fixtures
+from the pinned OTMS commit guard against drift. **Never fabricate Table 11 factors**: retain
+uploaded lookup data and the source's explicit unavailable-reference behaviour. HCA's existing
+canonical cm/bbl, exact-tank and no-silent-clamping rules remain authoritative (ADRs 014–017).
+
+Creation, editing, review, submission and approval are distinct standard resource capabilities.
+Workflow policy role/user lists are typed child tables. Party visibility never grants write
+scope: receiving links are validated against the Approved sender, receiving terminal and
+asset; writes remain origin-scoped. Use optimistic versions for edits/transitions, unique
+receiving links and one atomic immutable approval posting per ticket. No Approved/Cancelled
+edit or client-supplied status/creator/calculated-value bypass is allowed.
+
+**Consequences.** Operators require entry rights, not master administration grants, to read
+scoped reference projections. Snapshot measurements and calibration identity survive master
+changes. The supporting reference masters and voyage guards ship with entry; detailed tracking,
+comparison reports, task inboxes and correction workflows remain separately planned. See the
+[delivery note](../changes/2026-10-17-operation-entry.md) for the exact boundary and source map.

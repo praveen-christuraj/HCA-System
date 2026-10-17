@@ -692,3 +692,774 @@ class Operation(Base):
             name="uq_operation_location_type_label",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Business: Operation Entry
+#
+# One ticket per operation, for every operation type and asset type on a single
+# page. The payload shapes are the fixed OTMS module payloads (owner decision
+# 2026-10-17: no Operation Template Master customisation); persistence is typed
+# columns and child tables per rule 4, and serializers rebuild the payload
+# objects for transport.
+# ---------------------------------------------------------------------------
+class OperationEntry(Base):
+    """One operation ticket header (OTMS ``OperationTransaction`` header fields)."""
+
+    __tablename__ = "operation_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticket_number = Column(String(200), nullable=False, unique=True, index=True)
+    version = Column(Integer, nullable=False, default=1)
+    payload_code = Column(String(40), nullable=False)
+    operation_id = Column(Integer, ForeignKey("operations.id", ondelete="RESTRICT"), nullable=False)
+    linked_ticket_id = Column(Integer, ForeignKey("operation_entries.id", ondelete="RESTRICT"), nullable=True, index=True)
+    # Non-null only for a live receiving ticket; unique constraint protects concurrent creation.
+    receiver_link_key = Column(Integer, unique=True, nullable=True)
+    barge_event_type = Column(String(30), nullable=True)
+    reviewed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    approved_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    asset_code_snapshot = Column(String(80), nullable=False)
+    asset_name_snapshot = Column(String(150), nullable=False)
+    operation_code_snapshot = Column(String(40), nullable=False)
+    operation_label_snapshot = Column(String(150), nullable=False)
+    operation_category_snapshot = Column(String(40), nullable=False)
+    operation_sign_snapshot = Column(String(10), nullable=False)
+    __mapper_args__ = {"version_id_col": version}
+    operation_type_code = Column(String(40), nullable=False, index=True)
+    asset_type_code = Column(String(50), nullable=False, index=True)
+
+    asset_id = Column(
+        Integer,
+        ForeignKey("assets.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    location_id = Column(
+        Integer,
+        ForeignKey("locations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    destination_location_id = Column(
+        Integer,
+        ForeignKey("locations.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    sender_location_id = Column(
+        Integer,
+        ForeignKey("locations.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    receiver_location_id = Column(
+        Integer,
+        ForeignKey("locations.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
+    convoy_number = Column(String(50), nullable=True, index=True)
+    operation_date = Column(Date, nullable=False, index=True)
+    operation_start_datetime = Column(DateTime, nullable=True)
+    operation_end_datetime = Column(DateTime, nullable=True)
+    product_name = Column(String(150), nullable=True, index=True)
+    remarks = Column(Text, nullable=True)
+
+    status = Column(String(20), nullable=False, default="Draft", index=True)
+    status_remarks = Column(Text, nullable=True)
+
+    created_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    updated_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    submitted_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    submitted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    asset = relationship("Asset", foreign_keys=[asset_id])
+    operation = relationship("Operation", foreign_keys=[operation_id])
+    linked_ticket = relationship("OperationEntry", remote_side=[id], foreign_keys=[linked_ticket_id])
+    location = relationship("Location", foreign_keys=[location_id])
+    destination_location = relationship("Location", foreign_keys=[destination_location_id])
+    sender_location = relationship("Location", foreign_keys=[sender_location_id])
+    receiver_location = relationship("Location", foreign_keys=[receiver_location_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by = relationship("User", foreign_keys=[updated_by_user_id])
+    submitted_by = relationship("User", foreign_keys=[submitted_by_user_id])
+
+    tank_gauging = relationship(
+        "OperationEntryTankGauging",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    multi_tank = relationship(
+        "OperationEntryMultiTank",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    tanker = relationship(
+        "OperationEntryTanker",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    shuttle = relationship(
+        "OperationEntryShuttle",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    fso = relationship(
+        "OperationEntryFso",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    flowmeter = relationship(
+        "OperationEntryFlowmeter",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    status_history = relationship(
+        "OperationEntryStatusHistory",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        order_by="OperationEntryStatusHistory.id",
+    )
+
+
+class OperationEntryStatusHistory(Base):
+    """Append-only workflow history of one ticket."""
+
+    __tablename__ = "operation_entry_status_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entry_id = Column(
+        Integer,
+        ForeignKey("operation_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    from_status = Column(String(20), nullable=True)
+    to_status = Column(String(20), nullable=False)
+    action = Column(String(40), nullable=False)
+    remarks = Column(Text, nullable=True)
+    actor_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    entry = relationship("OperationEntry", back_populates="status_history")
+    actor = relationship("User", foreign_keys=[actor_user_id])
+
+
+class OperationEntryTankGauging(Base):
+    """``tank_gauging_payload``: one row per tank operations ticket."""
+
+    __tablename__ = "operation_entry_tank_gauging"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entry_id = Column(
+        Integer,
+        ForeignKey("operation_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    # Operation selection (Operation Master row, snapshot of its identity)
+    operation_code = Column(String(40), nullable=False)
+    operation_label = Column(String(150), nullable=False)
+    operation_category = Column(String(40), nullable=False)
+    operation_sign = Column(String(10), nullable=False)
+
+    # inputs (OTMS emptyTankInput)
+    gauging_date = Column(Date, nullable=False)
+    gauging_time = Column(String(5), nullable=False)
+    dip_cm = Column(Numeric(14, 4), nullable=False)
+    water_level_cm = Column(Numeric(14, 4), nullable=False)
+    tank_temperature_unit = Column(String(2), nullable=False, default="C")
+    tank_temperature = Column(Numeric(8, 3), nullable=False)
+    observed_input_type = Column(String(30), nullable=False, default="Observed API")
+    observed_api = Column(Numeric(10, 4), nullable=True)
+    observed_density = Column(Numeric(12, 4), nullable=True)
+    sample_temperature_unit = Column(String(2), nullable=False, default="F")
+    sample_temperature = Column(Numeric(8, 3), nullable=False)
+    bsw_percent = Column(Numeric(8, 4), nullable=False)
+    remarks = Column(Text, nullable=True)
+
+    calibration_table_id_at_save = Column(Integer, nullable=True)
+    calibration_name = Column(String(150), nullable=True)
+    calibration_effective_date = Column(Date, nullable=True)
+    calibration_basis = Column(String(10), nullable=True)
+    calibration_max_dip_cm = Column(Numeric(14, 4), nullable=True)
+    calibration_table_id = Column(
+        Integer,
+        ForeignKey("asset_calibration_tables.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # calculated (OTMS tank payload.calculated, keys camelCase in transport)
+    tov_bbl = Column(Numeric(16, 4), nullable=True)
+    free_water_bbl = Column(Numeric(16, 4), nullable=True)
+    gov_bbl = Column(Numeric(16, 4), nullable=True)
+    calc_observed_api = Column(Numeric(10, 4), nullable=True)
+    calc_observed_density = Column(Numeric(12, 4), nullable=True)
+    api60 = Column(Numeric(10, 4), nullable=True)
+    density15 = Column(Numeric(12, 4), nullable=True)
+    vcf = Column(Numeric(12, 8), nullable=True)
+    gsv_bbl = Column(Numeric(16, 4), nullable=True)
+    bsw_bbl = Column(Numeric(16, 4), nullable=True)
+    nsv_bbl = Column(Numeric(16, 4), nullable=True)
+    lt_factor = Column(Numeric(16, 10), nullable=True)
+    lt = Column(Numeric(16, 4), nullable=True)
+    mt = Column(Numeric(16, 4), nullable=True)
+    mass_method = Column(String(120), nullable=True)
+    table11_method = Column(String(120), nullable=True)
+    table11_lower_api60 = Column(Numeric(10, 4), nullable=True)
+    table11_upper_api60 = Column(Numeric(10, 4), nullable=True)
+
+    entry = relationship("OperationEntry", back_populates="tank_gauging")
+    calibration_table = relationship("AssetCalibrationTable")
+
+
+class OperationEntryMultiTank(Base):
+    """``multi_tank_payload`` header: barge before/after across compartments."""
+
+    __tablename__ = "operation_entry_multi_tank"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entry_id = Column(
+        Integer,
+        ForeignKey("operation_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    calibration_table_id_at_save = Column(Integer, nullable=True)
+    calibration_name = Column(String(150), nullable=True)
+    calibration_effective_date = Column(Date, nullable=True)
+    calibration_basis = Column(String(10), nullable=True)
+    calibration_max_dip_cm = Column(Numeric(14, 4), nullable=True)
+    calibration_table_id = Column(
+        Integer,
+        ForeignKey("asset_calibration_tables.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    ccf = Column(Numeric(10, 6), nullable=True)
+
+    # Net movement (After − Before)
+    net_tov_bbl = Column(Numeric(16, 4), nullable=True)
+    net_free_water_bbl = Column(Numeric(16, 4), nullable=True)
+    net_gov_bbl = Column(Numeric(16, 4), nullable=True)
+    net_gsv_bbl = Column(Numeric(16, 4), nullable=True)
+    net_bsw_bbl = Column(Numeric(16, 4), nullable=True)
+    net_nsv_bbl = Column(Numeric(16, 4), nullable=True)
+    net_lt = Column(Numeric(16, 4), nullable=True)
+    net_mt = Column(Numeric(16, 4), nullable=True)
+
+    entry = relationship("OperationEntry", back_populates="multi_tank")
+    calibration_table = relationship("AssetCalibrationTable")
+    stages = relationship(
+        "OperationEntryMultiTankStage",
+        back_populates="multi_tank",
+        cascade="all, delete-orphan",
+        order_by="OperationEntryMultiTankStage.id",
+    )
+    seals = relationship(
+        "OperationEntryMultiTankSeal",
+        back_populates="multi_tank",
+        cascade="all, delete-orphan",
+        order_by="OperationEntryMultiTankSeal.id",
+    )
+
+
+class OperationEntryMultiTankStage(Base):
+    """One Before/After stage of a multi-tank ticket, with its totals."""
+
+    __tablename__ = "operation_entry_multi_tank_stages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    multi_tank_id = Column(
+        Integer,
+        ForeignKey("operation_entry_multi_tank.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    stage = Column(String(10), nullable=False)  # Before | After
+    stage_date = Column(Date, nullable=True)
+    stage_time = Column(String(5), nullable=True)
+
+    ccf = Column(Numeric(10, 6), nullable=True)
+    obs_mode = Column(String(30), nullable=False, default="Observed API")
+    obs_api = Column(Numeric(10, 4), nullable=True)
+    obs_density = Column(Numeric(12, 4), nullable=True)
+    sample_temp_unit = Column(String(2), nullable=False, default="F")
+    sample_temp = Column(Numeric(8, 3), nullable=False)
+    tank_temp_unit = Column(String(2), nullable=False, default="C")
+    tank_temp = Column(Numeric(8, 3), nullable=False)
+    bsw_pct = Column(Numeric(8, 4), nullable=False)
+
+    tov_bbl = Column(Numeric(16, 4), nullable=True)
+    free_water_bbl = Column(Numeric(16, 4), nullable=True)
+    gov_bbl = Column(Numeric(16, 4), nullable=True)
+    api60 = Column(Numeric(10, 4), nullable=True)
+    vcf = Column(Numeric(12, 8), nullable=True)
+    gsv_bbl = Column(Numeric(16, 4), nullable=True)
+    bsw_bbl = Column(Numeric(16, 4), nullable=True)
+    nsv_bbl = Column(Numeric(16, 4), nullable=True)
+    lt_factor = Column(Numeric(16, 10), nullable=True)
+    lt = Column(Numeric(16, 4), nullable=True)
+    mt = Column(Numeric(16, 4), nullable=True)
+    table11_method = Column(String(120), nullable=True)
+    table11_lower_api60 = Column(Numeric(10, 4), nullable=True)
+    table11_upper_api60 = Column(Numeric(10, 4), nullable=True)
+
+    multi_tank = relationship("OperationEntryMultiTank", back_populates="stages")
+    dips = relationship(
+        "OperationEntryMultiTankDip",
+        back_populates="stage",
+        cascade="all, delete-orphan",
+        order_by="OperationEntryMultiTankDip.sort_order",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("multi_tank_id", "stage", name="uq_multi_tank_stage"),
+    )
+
+
+class OperationEntryMultiTankDip(Base):
+    """One compartment's dip pair in one stage."""
+
+    __tablename__ = "operation_entry_multi_tank_dips"
+
+    id = Column(Integer, primary_key=True, index=True)
+    stage_id = Column(
+        Integer,
+        ForeignKey("operation_entry_multi_tank_stages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tank_name = Column(String(120), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=1)
+    total_dip_cm = Column(Numeric(14, 4), nullable=True)
+    water_dip_cm = Column(Numeric(14, 4), nullable=True)
+    tov_bbl = Column(Numeric(16, 4), nullable=True)
+    free_water_bbl = Column(Numeric(16, 4), nullable=True)
+    gov_bbl = Column(Numeric(16, 4), nullable=True)
+
+    stage = relationship("OperationEntryMultiTankStage", back_populates="dips")
+
+    __table_args__ = (
+        UniqueConstraint("stage_id", "tank_name", name="uq_multi_tank_dip_tank"),
+    )
+
+
+class OperationEntryMultiTankSeal(Base):
+    """Permanent tank seal or temporary seal captured on the After stage."""
+
+    __tablename__ = "operation_entry_multi_tank_seals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    multi_tank_id = Column(
+        Integer,
+        ForeignKey("operation_entry_multi_tank.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seal_group = Column(String(20), nullable=False)  # Tank | Temporary
+    tank_name = Column(String(120), nullable=True)
+    position = Column(String(40), nullable=False)  # MH1, MH2, LOCK, ... | portManifoldSeal ...
+    master_number = Column(String(120), nullable=True)
+    observed_number = Column(String(120), nullable=True)
+    remarks = Column(Text, nullable=True)
+
+    multi_tank = relationship("OperationEntryMultiTank", back_populates="seals")
+
+
+class OperationEntryTanker(Base):
+    """``tanker_payload``: one row per tanker ticket."""
+
+    __tablename__ = "operation_entry_tanker"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entry_id = Column(
+        Integer,
+        ForeignKey("operation_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    operation_code = Column(String(40), nullable=True)
+    operation_label = Column(String(150), nullable=True)
+    operation_category = Column(String(40), nullable=True)
+    operation_sign = Column(String(10), nullable=True)
+
+    operation_text = Column(String(150), nullable=True)
+    tanker_transaction_date = Column(Date, nullable=False)
+    tanker_transaction_time = Column(String(5), nullable=False)
+    tanker_name = Column(String(150), nullable=True)
+    prime_mover_number = Column(String(80), nullable=True)
+    chassis_number = Column(String(100), nullable=True)
+    compartment = Column(String(120), nullable=False, default="C1")
+    prime_mover_asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True)
+    prime_mover_name = Column(String(150), nullable=True)
+    total_dip_cm = Column(Numeric(14, 4), nullable=False)
+    water_dip_cm = Column(Numeric(14, 4), nullable=False)
+    bsw_percent = Column(Numeric(8, 4), nullable=False)
+    tank_temperature_unit = Column(String(2), nullable=False, default="C")
+    tank_temperature = Column(Numeric(8, 3), nullable=False)
+    observed_input_type = Column(String(30), nullable=False, default="Observed API")
+    observed_api = Column(Numeric(10, 4), nullable=True)
+    observed_density = Column(Numeric(12, 4), nullable=True)
+    sample_temperature_unit = Column(String(2), nullable=False, default="F")
+    sample_temperature = Column(Numeric(8, 3), nullable=False)
+    seal_c1 = Column(String(120), nullable=True)
+    seal_c2 = Column(String(120), nullable=True)
+    seal_m1 = Column(String(120), nullable=True)
+    seal_m2 = Column(String(120), nullable=True)
+    remarks = Column(Text, nullable=True)
+
+    calibration_table_id_at_save = Column(Integer, nullable=True)
+    calibration_name = Column(String(150), nullable=True)
+    calibration_effective_date = Column(Date, nullable=True)
+    calibration_basis = Column(String(10), nullable=True)
+    calibration_max_dip_cm = Column(Numeric(14, 4), nullable=True)
+    calibration_table_id = Column(
+        Integer,
+        ForeignKey("asset_calibration_tables.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    tov_bbl = Column(Numeric(16, 4), nullable=True)
+    free_water_bbl = Column(Numeric(16, 4), nullable=True)
+    gov_bbl = Column(Numeric(16, 4), nullable=True)
+    calc_observed_api = Column(Numeric(10, 4), nullable=True)
+    calc_observed_density = Column(Numeric(12, 4), nullable=True)
+    api60 = Column(Numeric(10, 4), nullable=True)
+    density15 = Column(Numeric(12, 4), nullable=True)
+    vcf = Column(Numeric(12, 8), nullable=True)
+    gsv_bbl = Column(Numeric(16, 4), nullable=True)
+    bsw_bbl = Column(Numeric(16, 4), nullable=True)
+    nsv_bbl = Column(Numeric(16, 4), nullable=True)
+    lt_factor = Column(Numeric(16, 10), nullable=True)
+    lt = Column(Numeric(16, 4), nullable=True)
+    mt = Column(Numeric(16, 4), nullable=True)
+    mass_method = Column(String(120), nullable=True)
+    table11_method = Column(String(120), nullable=True)
+    table11_lower_api60 = Column(Numeric(10, 4), nullable=True)
+    table11_upper_api60 = Column(Numeric(10, 4), nullable=True)
+
+    entry = relationship("OperationEntry", back_populates="tanker")
+    calibration_table = relationship("AssetCalibrationTable")
+
+
+class OperationEntryShuttle(Base):
+    """``shuttle_payload``: one row per shuttle voyage event."""
+
+    __tablename__ = "operation_entry_shuttle"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entry_id = Column(
+        Integer,
+        ForeignKey("operation_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    operation_code = Column(String(40), nullable=False)
+    operation_label = Column(String(150), nullable=False)
+    operation_category = Column(String(40), nullable=False)
+    operation_sign = Column(String(10), nullable=False)
+
+    event_time = Column(String(5), nullable=True)
+    opening_stock_bbl = Column(Numeric(16, 4), nullable=False, default=0)
+    opening_water_bbl = Column(Numeric(16, 4), nullable=False, default=0)
+    closing_stock_bbl = Column(Numeric(16, 4), nullable=False, default=0)
+    closing_water_bbl = Column(Numeric(16, 4), nullable=False, default=0)
+    barge_reference = Column(String(120), nullable=True)
+    remarks = Column(Text, nullable=True)
+
+    net_stock_bbl = Column(Numeric(16, 4), nullable=True)
+    net_water_bbl = Column(Numeric(16, 4), nullable=True)
+
+    entry = relationship("OperationEntry", back_populates="shuttle")
+
+
+class OperationEntryFso(Base):
+    """``fso_payload``: one row per FSO event."""
+
+    __tablename__ = "operation_entry_fso"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entry_id = Column(
+        Integer,
+        ForeignKey("operation_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    operation_code = Column(String(40), nullable=False)
+    operation_label = Column(String(150), nullable=False)
+    operation_category = Column(String(40), nullable=False)
+    operation_sign = Column(String(10), nullable=False)
+
+    event_time = Column(String(5), nullable=True)
+    shuttle_number = Column(String(50), nullable=True)
+    vessel_name = Column(String(150), nullable=True)
+    vessel_quantity_bbl = Column(Numeric(20, 8), nullable=True)
+    source_shuttle_discharge_bbl = Column(Numeric(20, 8), nullable=True)
+    source_voyage_id = Column(Integer, ForeignKey("operation_voyages.id", ondelete="RESTRICT"), nullable=True)
+    opening_stock_bbl = Column(Numeric(16, 4), nullable=False, default=0)
+    opening_water_bbl = Column(Numeric(16, 4), nullable=False, default=0)
+    closing_stock_bbl = Column(Numeric(16, 4), nullable=False, default=0)
+    closing_water_bbl = Column(Numeric(16, 4), nullable=False, default=0)
+    remarks = Column(Text, nullable=True)
+
+    net_stock_bbl = Column(Numeric(16, 4), nullable=True)
+    net_water_bbl = Column(Numeric(16, 4), nullable=True)
+    variance_bbl = Column(Numeric(16, 4), nullable=True)
+
+    entry = relationship("OperationEntry", back_populates="fso")
+
+
+class OperationEntryFlowmeter(Base):
+    """``flowmeter_payload`` header: one row per meter-reading ticket."""
+
+    __tablename__ = "operation_entry_flowmeter"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entry_id = Column(
+        Integer,
+        ForeignKey("operation_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    stream_name = Column(String(150), nullable=False)
+    reading_date = Column(Date, nullable=False)
+    event_time = Column(String(5), nullable=True)
+    tank_temperature_unit = Column(String(2), nullable=False, default="C")
+    tank_temperature = Column(Numeric(8, 3), nullable=False)
+    observed_input_type = Column(String(30), nullable=False, default="Observed API")
+    observed_api = Column(Numeric(10, 4), nullable=True)
+    observed_density = Column(Numeric(12, 4), nullable=True)
+    sample_temperature_unit = Column(String(2), nullable=False, default="F")
+    sample_temperature = Column(Numeric(8, 3), nullable=False)
+    bsw_percent = Column(Numeric(8, 4), nullable=False)
+    remarks = Column(Text, nullable=True)
+
+    stream_gross_observed = Column(Numeric(26, 12), nullable=True)
+    stream_gross_observed_bbl = Column(Numeric(26, 12), nullable=True)
+    api60 = Column(Numeric(10, 4), nullable=True)
+    vcf = Column(Numeric(12, 8), nullable=True)
+    gsv_bbl = Column(Numeric(26, 12), nullable=True)
+    bsw_bbl = Column(Numeric(26, 12), nullable=True)
+    nsv_bbl = Column(Numeric(26, 12), nullable=True)
+
+    entry = relationship("OperationEntry", back_populates="flowmeter")
+    meters = relationship(
+        "OperationEntryFlowmeterMeter",
+        back_populates="flowmeter",
+        cascade="all, delete-orphan",
+        order_by="OperationEntryFlowmeterMeter.sort_order",
+    )
+
+
+class OperationEntryFlowmeterMeter(Base):
+    """One meter's opening/closing readings in a flowmeter ticket."""
+
+    __tablename__ = "operation_entry_flowmeter_meters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    flowmeter_id = Column(
+        Integer,
+        ForeignKey("operation_entry_flowmeter.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sort_order = Column(Integer, nullable=False, default=1)
+    config_id = Column(Integer, ForeignKey("flowmeter_configs.id", ondelete="RESTRICT"), nullable=False)
+    meter_asset_code = Column(String(80), nullable=True)
+    meter_asset_name = Column(String(150), nullable=True)
+    meter_label = Column(String(150), nullable=False)
+    opening_reading = Column(Numeric(26, 12), nullable=False, default=0)
+    closing_reading = Column(Numeric(26, 12), nullable=False, default=0)
+    meter_factor = Column(Numeric(16, 10), nullable=False, default=1)
+    meter_unit = Column(String(10), nullable=False, default="m3")
+    gross_observed = Column(Numeric(26, 12), nullable=True)
+    gross_observed_bbl = Column(Numeric(26, 12), nullable=True)
+
+    flowmeter = relationship("OperationEntryFlowmeter", back_populates="meters")
+
+    __table_args__ = (
+        UniqueConstraint("flowmeter_id", "meter_label", name="uq_flowmeter_meter_label"),
+    )
+
+
+class Table11Factor(Base):
+    """Operator-supplied Table 11 reference factors. Never generated or labelled certified."""
+    __tablename__ = "table11_factors"
+    id = Column(Integer, primary_key=True)
+    api60 = Column(Numeric(10, 4), nullable=False, unique=True, index=True)
+    lt_factor = Column(Numeric(16, 10), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class FlowmeterConfig(Base):
+    __tablename__ = "flowmeter_configs"
+    id = Column(Integer, primary_key=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False, index=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    meter_asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True)
+    stream_name = Column(String(150), nullable=False)
+    meter_label = Column(String(150), nullable=False)
+    meter_factor = Column(Numeric(16, 10), nullable=False, default=1)
+    meter_unit = Column(String(10), nullable=False, default="bbls")
+    calibration_date = Column(Date, nullable=True)
+    remarks = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    asset = relationship("Asset", foreign_keys=[asset_id])
+    meter_asset = relationship("Asset", foreign_keys=[meter_asset_id])
+    location = relationship("Location")
+    __table_args__ = (UniqueConstraint("location_id", "asset_id", "meter_label", name="uq_entry_meter_config"),)
+
+
+class BargeSealMaster(Base):
+    __tablename__ = "barge_seal_master"
+    id = Column(Integer, primary_key=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    tank_id = Column(Integer, ForeignKey("asset_tanks.id", ondelete="RESTRICT"), nullable=False)
+    seal_position = Column(String(20), nullable=False)
+    seal_number = Column(String(120), nullable=False)
+    effective_date = Column(Date, nullable=True)
+    remarks = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    asset = relationship("Asset")
+    tank = relationship("AssetTank")
+    __table_args__ = (UniqueConstraint("asset_id", "tank_id", "seal_position", name="uq_entry_barge_seal"),)
+
+
+class OperationWorkflowPolicy(Base):
+    """Additional role/user gate, never a substitute for the capability + location gates."""
+    __tablename__ = "operation_workflow_policies"
+    id = Column(Integer, primary_key=True)
+    policy_name = Column(String(150), nullable=False, unique=True)
+    action_code = Column(String(30), nullable=False)
+    operation_type_code = Column(String(40), nullable=True)
+    asset_type_code = Column(String(50), nullable=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True)
+    payload_code = Column(String(40), nullable=True)
+    priority = Column(Integer, nullable=False, default=100)
+    roles = relationship("OperationWorkflowPolicyRole", cascade="all, delete-orphan")
+    users = relationship("OperationWorkflowPolicyUser", cascade="all, delete-orphan")
+    status = Column(String(20), nullable=False, default="Active")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class OperationVoyage(Base):
+    """Entry-side trip guard and closed-shuttle discharge source. Tracking reports are separate."""
+    __tablename__ = "operation_voyages"
+    id = Column(Integer, primary_key=True)
+    reference = Column(String(50), nullable=False, index=True)
+    operation_type_code = Column(String(40), nullable=False)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False)
+    status = Column(String(20), nullable=False, default="OPEN")
+    closed_at = Column(DateTime, nullable=True)
+    closed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    closure_remarks = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    asset = relationship("Asset")
+    __table_args__ = (UniqueConstraint("operation_type_code", "reference", "asset_id", "location_id", name="uq_operation_voyage_key"),)
+
+
+class OperationPosting(Base):
+    """Exactly one immutable stock/event posting per approved ticket, in the same transaction."""
+    __tablename__ = "operation_postings"
+    id = Column(Integer, primary_key=True)
+    entry_id = Column(Integer, ForeignKey("operation_entries.id", ondelete="RESTRICT"), nullable=False, unique=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False, index=True)
+    operation_date = Column(Date, nullable=False, index=True)
+    operation_category = Column(String(40), nullable=False)
+    operation_sign = Column(String(10), nullable=False)
+    quantity_bbl = Column(Numeric(26, 12), nullable=False)
+    water_bbl = Column(Numeric(26, 12), nullable=False, default=0)
+    event_type = Column(String(30), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class OperationEntryManualMovement(Base):
+    """OTMS scalar fields used by Stock Movement and Vessel Cycle (no EAV/JSON storage)."""
+    __tablename__ = "operation_entry_manual_movements"
+    id = Column(Integer, primary_key=True)
+    entry_id = Column(Integer, ForeignKey("operation_entries.id", ondelete="CASCADE"), nullable=False, unique=True)
+    movement_reference = Column(String(120), nullable=True)
+    counterparty_asset_code = Column(String(80), nullable=True)
+    opening_stock = Column(Numeric(24, 8), nullable=True)
+    opening_water = Column(Numeric(24, 8), nullable=True)
+    closing_stock = Column(Numeric(24, 8), nullable=True)
+    closing_water = Column(Numeric(24, 8), nullable=True)
+    quantity_bbl = Column(Numeric(24, 8), nullable=True)
+    water_bbl = Column(Numeric(24, 8), nullable=True)
+    net_stock = Column(Numeric(24, 8), nullable=True)
+    net_water = Column(Numeric(24, 8), nullable=True)
+    net_nsv = Column(Numeric(24, 8), nullable=True)
+    entry = relationship("OperationEntry", backref="manual_movement_rows")
+
+
+class OperationEntryWarning(Base):
+    __tablename__ = "operation_entry_warnings"
+    id = Column(Integer, primary_key=True)
+    entry_id = Column(Integer, ForeignKey("operation_entries.id", ondelete="CASCADE"), nullable=False, index=True)
+    message = Column(Text, nullable=False)
+    entry = relationship("OperationEntry", backref="warnings")
+
+
+class OperationWorkflowPolicyRole(Base):
+    __tablename__ = "operation_workflow_policy_roles"
+    policy_id = Column(Integer, ForeignKey("operation_workflow_policies.id", ondelete="CASCADE"), primary_key=True)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="RESTRICT"), primary_key=True)
+
+
+class OperationWorkflowPolicyUser(Base):
+    __tablename__ = "operation_workflow_policy_users"
+    policy_id = Column(Integer, ForeignKey("operation_workflow_policies.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), primary_key=True)
+    mode = Column(String(10), nullable=False, default="ALLOW")

@@ -5,6 +5,31 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-17 — Operation Entry: fixed OTMS payloads and ticket lifecycle
+
+**Note:** [`changes/2026-10-17-operation-entry.md`](changes/2026-10-17-operation-entry.md)
+
+- One Business → Operation Entry page for Tank, Barge, Shuttle, FSO, Tanker and Flowmeter,
+  plus the fixed legacy Vessel Cycle / Stock Movement layouts. No Operation Template Master,
+  custom fields or payload editor. Extracted source row/card order, cautions and quick actions.
+- Ported live OTMS calculations with server revalidation: CCF, API/density/temperature, VCF,
+  GSV/NSV, Table 11 mass, meter factors, net movement and variance. Nine numerical golden
+  fixtures were executed from OTMS commit `5eed361486fa56ad636da62e238d73059b0e2a2c`.
+- Separate create/edit/review/submit/approve/recall/cancel capabilities, policy gates, party reads,
+  origin-scoped writes, linked receiving tickets, seal checks, immutable Approved/Cancelled
+  records, version conflict protection and atomic approval postings.
+- Typed payload/reference/history tables (no JSON storage), calibration snapshots, safe exact
+  tank resolution, reference data import/export, paginated lookups and status history, fixed
+  grouped CSV/XLSX ticket imports and complete ticket/register exports.
+- Configurations → Operation References supplies Table 11, meter configuration, seals, workflow
+  policies and voyage controls. No invented Table 11 factors. Asset tank updates preserve chart
+  and seal identities. Business dashboard is live and location-scoped.
+- Verification: **182 backend tests**; frontend production build succeeds; **18 Playwright
+  tests** against the live API/proxy, including all six types in light/dark, two legacy layouts,
+  linked receiving, configuration tabs, login and responsive shell checks. PostgreSQL DDL
+  compilation succeeds; a live PostgreSQL/Docker deployment and custody-data acceptance are not
+  claimed. The existing ~516 kB main-bundle warning remains; the new pages are lazy-loaded.
+
 ## 2026-10-17 — Prime Mover-Tanker Link (Master Data) and Configurations module
 
 **Note:** [`changes/2026-10-17-prime-mover-link-and-configurations.md`](changes/2026-10-17-prime-mover-link-and-configurations.md)

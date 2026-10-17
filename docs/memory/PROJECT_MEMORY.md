@@ -274,3 +274,18 @@ imports, exports, admin screens and everything added later. Code review must rej
    UI action auditing).
 4. Nothing unbuilt is described as done. The module map in [`MODULES.md`](MODULES.md) is the
    honest status board.
+
+
+## 6. Operation Entry owner instruction (2026-10-17)
+
+- Operation Template Master customization is **not required**. Use the fixed OTMS module
+  payloads directly; do not add a field designer, JSON editor or user-defined payloads.
+- One entry page serves all operation types/assets. Retain the source layout rows, KPI order,
+  cautions, validations, copy/seal actions and calculation semantics. The established HCA fixed
+  types, exact compartment identity, canonical units and typed/no-JSON persistence still apply.
+- Creating/editing a ticket must not imply permission to review, submit or approve it.
+  The administrator controls those capabilities independently, with API enforcement.
+- Reference values must be real configured inputs. In particular, do not generate or label
+  approximate density factors as certified Table 11 data.
+- The implementation decision is ADR-020. Detailed delivery/source parity and limitations are in
+  `docs/changes/2026-10-17-operation-entry.md`.

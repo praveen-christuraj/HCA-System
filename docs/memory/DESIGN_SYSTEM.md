@@ -155,3 +155,14 @@ tiny labels.
 3. Keyboard pass: tab through login, top navigation, menu, user menu; Escape closes menus.
 4. Contrast spot-check on navy buttons, muted text, status chips in both themes.
 5. Backend tests unaffected.
+
+
+## 10. Operation Entry layout preservation
+
+Operation Entry is an intentional exception to generic form auto-layout: the owner requires the
+OTMS module rows and calculation-card positions. Keep the extracted two-column entry header,
+Tank Gauging field/card order, Barge BEFORE/AFTER/net columns, tanker entry/sticky-results panels,
+and Shuttle/FSO/meter row groups. Scope their geometry in `styles/operation-entry.css`; use HCA
+colour tokens in both themes. Do not replace these with a generic template/JSON editor. New
+lookup, confirmation and import controls must remain keyboard-accessible without moving the
+source's measurement/result sections.

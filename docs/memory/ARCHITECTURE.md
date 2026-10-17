@@ -308,3 +308,36 @@ Recorded in [DECISIONS.md](DECISIONS.md). Summary:
 | Calibration schema | User-designed template columns + `row_data` JSONB rows | Fixed three columns; typed `Numeric` rows in canonical cm/bbl |
 | Calibration units | Assumed cm and bbl | cm/mm/m and L/kL/bbl accepted, converted once, source kept |
 | Interpolation | Browser-only, silent clamping, `0` for an empty table | Server-side; method, bracketing points and out-of-range refusal |
+
+
+## 11. Fixed Operation Entry layer (ADR-020)
+
+- `routers/operation_entries.py` → `services/operation_entry_access.py` and
+  `services/operation_entry_service.py` → typed header/module/child tables. The fixed catalogue
+  is `utils/operation_entry_payloads.py`; there is no template CRUD or JSON persistence.
+- `services/quantity_engine.py` ports OTMS formulas and uses the shared fail-closed calibration
+  engine. `services/table11.py` queries uploaded typed reference rows. The browser's source
+  layouts calculate immediately, `/calculate` validates live, and save recomputes authoritatively.
+- Source-compatible payload serialization belongs to the operation service rather than the
+  generic master serializers. Snapshot reference fields protect historical tickets when masters
+  change. Approval writes exactly one immutable `operation_postings` row with the status/audit
+  transition in the same transaction.
+- Read scope is the union of origin/sender/receiver/destination party scope; mutation scope is
+  origin-only. A validated receiving link is the narrow exception for the foreign sender asset's
+  calibration context, not unrestricted master access.
+- Creation/editing, reviews, submissions, approvals, receiving tickets, reference management,
+  policies and voyage controls have independent standard resource capabilities. Permissions are
+  still resolved from live roles on every request. Optimistic ticket versions reject stale writes.
+- `routers/operation_entry_import.py` groups fixed scalar CSV/XLSX rows into validated Draft
+  tickets atomically. `routers/operation_references.py` owns the typed supporting masters,
+  policy memberships and voyage close/reopen controls.
+- `pages/OperationEntry.jsx` and `pages/OperationReferences.jsx` are lazy-loaded. The original
+  measurement layouts live in `components/operationLayouts/`; narrow adapters translate scoped
+  HCA reference projections without changing business input keys. No browser call targets a
+  backend localhost address.
+- New operational lists, lookup selectors and status history use standard pagination. Only a
+  single selected asset's bounded chart is loaded as one calculation document (50,000 points
+  max); tickets are bounded to 200 tanks/meters. This is not an unbounded master list.
+- `frontend/tests/operation-entry.spec.js` runs against a real API/Vite proxy. See
+  `playwright.config.js` and the delivery note for isolated test setup. Numerical OTMS fixtures
+  are in `backend/tests/fixtures/otms_quantity_golden.json`.

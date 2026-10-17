@@ -125,6 +125,52 @@ RESOURCE_PERMISSION_DEFINITIONS = [
         "actions": (READ, CREATE, UPDATE, DELETE),
     },
     {
+        # Business: Operation Entry tickets for every operation type and asset
+        # type on one page. Create covers saving Draft tickets;
+        # update covers edits; submissions/reviews/approvals are separate resources. Delete is
+        # the OTMS "Cancel" of a Draft/Rejected ticket (the row is kept).
+        "resource": "operation_entries",
+        "module_name": "Operation Entry",
+        "category": "Business Modules",
+        "label": "operation entry tickets",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
+        "resource": "operation_submissions", "module_name": "Ticket Submission",
+        "category": "Business Modules", "label": "ticket submission",
+        "actions": (READ, CREATE, DELETE,),
+    },
+    {
+        "resource": "operation_reviews", "module_name": "Ticket Review",
+        "category": "Business Modules", "label": "ticket review",
+        "actions": (CREATE,),
+    },
+    {
+        "resource": "operation_approvals", "module_name": "Ticket Approval",
+        "category": "Business Modules", "label": "ticket approval",
+        "actions": (CREATE, UPDATE,),
+    },
+    {
+        "resource": "receiving_tickets", "module_name": "Receiving Tickets",
+        "category": "Business Modules", "label": "receiving tickets",
+        "actions": (CREATE,),
+    },
+    {
+        "resource": "operation_references", "module_name": "Operation References",
+        "category": "Business Modules", "label": "operation references",
+        "actions": (READ, CREATE, UPDATE, DELETE,),
+    },
+    {
+        "resource": "operation_policies", "module_name": "Operation Workflow Policies",
+        "category": "Business Modules", "label": "operation workflow policies",
+        "actions": (READ, CREATE, UPDATE, DELETE,),
+    },
+    {
+        "resource": "operation_voyages", "module_name": "Operation Voyages",
+        "category": "Business Modules", "label": "operation voyages",
+        "actions": (READ, UPDATE,),
+    },
+    {
         "resource": "audit",
         "module_name": "Audit Trail",
         "category": "Auditing Modules",

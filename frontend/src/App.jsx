@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { getCurrentUser, logoutUser } from './api/authApi'
 import AppShell from './components/layout/AppShell'
@@ -26,6 +26,9 @@ import {
   logUiAction,
   setActionLogUser,
 } from './utils/actionLogger'
+
+const OperationEntry = lazy(() => import('./pages/OperationEntry'))
+const OperationReferences = lazy(() => import('./pages/OperationReferences'))
 
 function App() {
   const [loggedInUser, setLoggedInUser] = useState(null)
@@ -82,7 +85,7 @@ function App() {
     <AuthProvider value={{ loggedInUser }}>
       <BrowserRouter>
         <AppShell loggedInUser={loggedInUser} onLogout={handleLogout}>
-          <Routes>
+          <Suspense fallback={<div className="loading" role="status">Loading module…</div>}><Routes>
             <Route
               path="/"
               element={
@@ -198,9 +201,11 @@ function App() {
                 </PermissionGuard>
               }
             />
+            <Route path="/operation-entry" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_entries:read"><OperationEntry /></PermissionGuard>} />
+            <Route path="/operation-references" element={<PermissionGuard loggedInUser={loggedInUser} anyOfPermissions={['operation_references:read','operation_policies:read','operation_voyages:read']}><OperationReferences /></PermissionGuard>} />
             <Route path="/modules/:moduleKey" element={<ModuleDashboard />} />
             <Route path="*" element={<NotFound />} />
-          </Routes>
+          </Routes></Suspense>
         </AppShell>
       </BrowserRouter>
     </AuthProvider>

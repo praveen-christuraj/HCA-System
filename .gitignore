@@ -27,3 +27,8 @@ npm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Browser verification artefacts (not application source)
+frontend/test-results/
+frontend/playwright-report/
+.test-artifacts/

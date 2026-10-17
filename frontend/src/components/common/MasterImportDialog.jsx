@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import Icon from './Icon'
-import { Alert } from './Ui'
+import { Alert, Pagination } from './Ui'
 
 const downloadTemplate = (headers, filename) => {
   const content = `\ufeff${headers.join(',')}\n`
@@ -29,8 +29,10 @@ export default function MasterImportDialog({
   const [preview, setPreview] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const inputRef = useRef(null)
-  const previewRows = useMemo(() => (preview?.rows || []).slice(0, 80), [preview])
+  const previewRows = useMemo(() => (preview?.rows || []).slice((page - 1) * pageSize, page * pageSize), [preview, page, pageSize])
   const columns = useMemo(() => {
     if (previewRows.length) {
       return Object.keys(previewRows[0]).filter((key) => !['row_number', 'valid', 'errors'].includes(key))
@@ -47,6 +49,7 @@ export default function MasterImportDialog({
     setBusy(true)
     setError('')
     setPreview(null)
+    setPage(1)
     try {
       setPreview(await importFile(file, false))
     } catch (previewError) {
@@ -137,11 +140,8 @@ export default function MasterImportDialog({
                   </table>
                 </div>
               )}
-              {preview.rows?.length > previewRows.length && (
-                <p className="field-help" style={{ marginTop: 6 }}>
-                  Showing {previewRows.length} of {preview.rows.length} rows; the entire file was validated.
-                </p>
-              )}
+              <Pagination page={page} pageSize={pageSize} pages={Math.ceil((preview.rows?.length || 0) / pageSize)} total={preview.rows?.length || 0}
+                onPageChange={setPage} onPageSizeChange={n => { setPageSize(n); setPage(1) }} />
             </div>
           )}
         </div>
