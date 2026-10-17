@@ -92,10 +92,12 @@ function TicketHistory({ ticket }) {
 }
 
 function OperationEntryPage() {
-  const { user, hasPermission } = usePermissions()
+  const { hasPermission } = usePermissions()
   const confirm = useConfirm()
   const [params] = useSearchParams()
   const [definitions, setDefinitions] = useState([])
+  const [defaultLocation, setDefaultLocation] = useState(null)
+  const [locationCount, setLocationCount] = useState(0)
   const [form, setForm] = useState(EMPTY)
   const [selected, setSelected] = useState({})
   const [values, setValues] = useState([])
@@ -141,7 +143,12 @@ function OperationEntryPage() {
     Promise.all([entryOptions(), entryLookup('locations')]).then(([o,l]) => {
       if (!active) return
       setDefinitions(o.entry_definitions)
-      if (l.total === 1) { setSelected(s => ({ ...s, location: l.items[0] })); setForm(f => ({ ...f, location_id: l.items[0].id })) }
+      setLocationCount(l.total)
+      if (l.total === 1) {
+        setDefaultLocation(l.items[0])
+        setSelected(s => ({ ...s, location: l.items[0], sender: l.items[0] }))
+        setForm(f => ({ ...f, location_id: l.items[0].id, sender_location_id: l.items[0].id }))
+      }
     }).catch(e => { if (active) setError(e.message) })
     return () => { active = false }
   }, [])
@@ -244,16 +251,21 @@ function OperationEntryPage() {
   }
   const changeType = type => {
     const d = definitions.find(x => x.operation_type_code === type)
-    setForm(f => ({ ...f, operation_type_code: type, payload_code: d?.payload_field_code || '', asset_id: null, operation_id: null }))
-    setSelected(s => ({ ...s, asset: null, operation: null })); setValues(d ? initializeValues(d.payload_field_code) : []); setSeed(v => v+1); setDirty(true)
+    setForm(f => ({ ...f, operation_type_code: type, payload_code: d?.payload_field_code || '', asset_id: null, operation_id: null, receiver_location_id: null, destination_location_id: null }))
+    setSelected(s => ({ ...s, asset: null, operation: null, receiver: null, destination: null })); setValues(d ? initializeValues(d.payload_field_code) : []); setSeed(v => v+1); setDirty(true)
   }
   const pickLocation = loc => {
-    change('location_id', loc?.id || null); chooseOperation(null)
-    setSelected(s => ({ ...s, location: loc, asset: s.asset?.asset_scope === 'Local' && s.asset.location_id !== loc?.id ? null : s.asset }))
+    change('location_id', loc?.id || null); change('sender_location_id', loc?.id || null); chooseOperation(null)
+    setSelected(s => ({ ...s, location: loc, sender: loc, asset: s.asset?.asset_scope === 'Local' && s.asset.location_id !== loc?.id ? null : s.asset }))
     if (selected.asset?.asset_scope === 'Local' && selected.asset.location_id !== loc?.id) change('asset_id', null)
     setValues(initializeValues(form.payload_code)); setSeed(v => v+1)
   }
   const pickAsset = async asset => {
+    if (asset?.asset_scope !== 'Global') {
+      change('receiver_location_id', null); change('destination_location_id', null)
+      setSelected(s => ({ ...s, receiver: null, destination: null }))
+    }
+    chooseOperation(null)
     change('asset_id', asset?.id || null); setSelected(s => ({ ...s, asset })); setValues(initializeValues(form.payload_code)); setSeed(v => v+1)
     if (asset?.asset_scope === 'Local' && asset.location_id !== form.location_id) {
       const r = await entryLookup('locations', { id: asset.location_id }); pickLocation(r.items[0]); setSelected(s => ({ ...s, asset })); change('asset_id', asset.id)
@@ -269,7 +281,7 @@ function OperationEntryPage() {
     setSaved(ticket); setSender(null); setForm({ ...EMPTY, ...Object.fromEntries(Object.keys(EMPTY).map(k => [k, ticket[k] ?? EMPTY[k]])),
       operation_start_datetime: ticket.operation_start_datetime?.slice(0,16) || '', operation_end_datetime: ticket.operation_end_datetime?.slice(0,16) || '' })
     setSelected({ asset: a.items[0] || { id: ticket.asset_id, asset_code: ticket.asset_code, asset_name: ticket.asset_name, asset_type_code: ticket.asset_type_code, status: 'Inactive' }, operation: o.items[0],
-      location: locs[0].items[0], destination: locs[1].items[0], sender: locs[2].items[0], receiver: locs[3].items[0] })
+      location: locs[0].items[0], destination: locs[1].items[0], sender: locs[2].items[0] || locs[0].items[0], receiver: locs[3].items[0] })
     setValues(initializeValues(ticket.payload_code, ticket.payload, ticket.barge_event_type))
     setSeed(v => v+1); setDirty(false); setError('')
     if (ticket.linked_ticket_id) setSender(await linkedSender(ticket.linked_ticket_id))
@@ -329,6 +341,9 @@ function OperationEntryPage() {
             }
           }
           if (!locations.origin && asset?.location_id) locations.origin = (await entryLookup('locations', { id: asset.location_id })).items[0]
+          locations.origin ||= locations.sender || defaultLocation
+          locations.sender ||= locations.origin
+          locations.receiver ||= locations.destination
           const opCode = params.get('operation_code')
           const ops = locations.origin ? await entryLookup('operations', { location_id: locations.origin.id, operation_type_code: d.operation_type_code, search: opCode || '' }) : {items:[],total:0}
           const operation = opCode ? ops.items.find(o => o.operation_code === opCode) : ops.total === 1 ? ops.items[0] : null
@@ -347,9 +362,9 @@ function OperationEntryPage() {
   }, [definitions])
   const reset = async () => {
     if (dirty && !await confirm({ title: 'New operation ticket', message: 'Discard unsaved changes and start a new ticket?', confirmLabel: 'Start new ticket' })) return
-    generation.current++; setSaved(null); setSender(null); setForm({ ...EMPTY, location_id: form.location_id }); setSelected({ location: selected.location }); setValues([]); setContext(null); setDirty(false); setSeed(v => v+1); setSuccess(''); setError('')
+    generation.current++; setSaved(null); setSender(null); setForm({ ...EMPTY, location_id: defaultLocation?.id || null, sender_location_id: defaultLocation?.id || null }); setSelected({ location: defaultLocation, sender: defaultLocation }); setValues([]); setContext(null); setDirty(false); setSeed(v => v+1); setSuccess(''); setError('')
   }
-  const buildRequest = () => ({ ...form, payload: { ...payload, inputs: { ...payload.inputs,
+  const buildRequest = () => ({ ...form, sender_location_id: form.sender_location_id || form.location_id, payload: { ...payload, inputs: { ...payload.inputs,
     ...(form.payload_code === 'tanker_payload' ? { convoyNumber: form.convoy_number, cargo: form.product_name } : {}) } },
     barge_event_type: form.payload_code === 'multi_tank_payload' ? values.find(v => v.fieldCode === 'barge_event_type')?.fieldValue || null : null,
     payload_code: form.payload_code || null, convoy_number: form.convoy_number || null,
@@ -359,8 +374,9 @@ function OperationEntryPage() {
     e.preventDefault(); setError('')
     if (!writable) return
     if (!form.operation_type_code || !form.operation_id || !form.asset_id || !form.location_id || !form.operation_date) {
-      setError('Operation Type, Operation, Primary Asset, Origin Location and Operation Date are required.'); return
+      setError('Operation Type, Operation, Primary Asset, Sender Location and Operation Date are required.'); return
     }
+    if (selected.asset?.asset_scope === 'Global' && !form.receiver_location_id) { setError('Select a Receiver Location for this global asset.'); return }
     if (validation?.errors?.length) { setError('Resolve the validation errors beside the entry before saving.'); return }
     setSavePreview(buildRequest())
   }
@@ -411,11 +427,32 @@ function OperationEntryPage() {
     <form onSubmit={prepareSave} className="entry-form" onBlurCapture={e => { if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) logUiAction('Operation Entry', 'Edit Field', { field: e.target.name || e.target.getAttribute('aria-label') || e.target.id }) }}>
       <fieldset disabled={!writable || busy} className="entry-header-grid">
         {form.linked_ticket_id && <div className="full-width-field info-box"><strong>Receiving Ticket</strong> · Linked to {sender?.ticket_number || form.linked_ticket_id}. Route, convoy, and asset are locked to the Approved sender; measure receiver dips and seals independently.</div>}
-        <label>Operation Type<select aria-label="Operation Type" name="operation_type_code" value={form.operation_type_code} disabled={Boolean(saved) || Boolean(sender)} onChange={e => changeType(e.target.value)}>
+        <label>Operation Type<select aria-label="Operation Type" name="operation_type_code" required value={form.operation_type_code} disabled={Boolean(saved) || Boolean(sender)} onChange={e => changeType(e.target.value)}>
           <option value="">Select Operation Type</option>{definitions.map(d => <option key={d.operation_type_code} value={d.operation_type_code}>{d.operation_type_name} ({d.asset_type_name})</option>)}
         </select></label>
-        <EntryLookup kind="operations" label="Operation" required selected={selected.operation} onPick={chooseOperation} disabled={!writable || !form.location_id || !form.operation_type_code}
-          params={{ location_id: form.location_id, operation_type_code: form.operation_type_code }} />
+        <EntryLookup kind="assets" label="Primary Asset" required selected={selected.asset} onPick={pickAsset} disabled={!writable || !definition || Boolean(sender)} params={{ asset_type_code: definition?.asset_type_code, location_id: form.location_id }} />
+        <div>
+          <EntryLookup kind={sender ? 'all-locations' : 'locations'} label="Sender Location" required selected={selected.sender || selected.location} onPick={pickLocation} disabled={!writable || Boolean(sender) || locationCount === 1} />
+          <small>{sender ? 'Route locked to the approved sender ticket.' : locationCount === 1 ? 'Your assigned location is filled automatically.' : 'Select one of your accessible locations.'}</small>
+        </div>
+        {selected.asset?.asset_scope === 'Global' && <EntryLookup kind="all-locations" label="Receiver Location" required selected={selected.receiver} disabled={!writable || Boolean(sender)} onPick={loc => {
+          change('receiver_location_id', loc?.id || null); change('destination_location_id', loc?.id || null)
+          setSelected(s => ({ ...s, receiver: loc, destination: loc }))
+        }} />}
+        <div>
+          <label htmlFor="operation-date">Operation Date *</label>
+          <div className="entry-date-control"><input id="operation-date" name="operation_date" type="date" required value={form.operation_date} onChange={e => change('operation_date', e.target.value)} />
+            <button type="button" className="btn btn-secondary" onClick={() => {
+              const now = new Date()
+              change('operation_date', `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`)
+              logUiAction('Operation Entry', 'Set Current Date')
+            }}>Today</button></div>
+        </div>
+        <label className="full-width-field">Remarks<textarea name="remarks" rows={3} maxLength={4000} value={form.remarks} onChange={e => change('remarks', e.target.value)} /></label>
+      </fieldset>
+      <fieldset disabled={!writable || busy} className="entry-layout-container" ref={layoutRef} onClickCapture={e => {
+        const action = e.target.closest('button, summary'); if (action) logUiAction('Operation Entry', 'Layout Action', { action: action.textContent?.trim() })
+      }} onChange={() => { setDirty(true); setSuccess('') }}>
         {definition && <div className="full-width-field operation-layout-banner">
           <div><span>Entry Layout</span>{definition.alternatives?.length && !saved ? <select aria-label="Fixed entry layout" value={form.payload_code} onChange={e => {
             change('payload_code', e.target.value); setValues(initializeValues(e.target.value)); setSeed(v => v+1)
@@ -423,27 +460,16 @@ function OperationEntryPage() {
           <div><span>Calculation Engine</span><strong>{layoutDefinition?.calculation_engine}</strong></div>
           <div><span>Fixed Payload · no template setup</span><strong>{form.payload_code}</strong></div>
         </div>}
-        <EntryLookup kind="assets" label="Primary Asset" required selected={selected.asset} onPick={pickAsset} disabled={!writable || !definition || Boolean(sender)} params={{ asset_type_code: definition?.asset_type_code, location_id: form.location_id }} />
+        {!locked && <div className="entry-payload-controls">
+          {['multi_tank_payload','tanker_payload','flowmeter_payload'].includes(form.payload_code) && <EntryLookup kind="operations" label="Operation" required selected={selected.operation} onPick={chooseOperation} disabled={!writable || !form.location_id || !form.operation_type_code}
+            params={{ location_id: form.location_id, operation_type_code: form.operation_type_code }} />}
         {definition?.requires_convoy_number && !variant && <label>{definition.convoy_label}<input name="convoy_number" maxLength={50} value={form.convoy_number} disabled={Boolean(sender)} onChange={e => change('convoy_number', e.target.value)} /></label>}
-        <EntryLookup kind="locations" label="Origin Location" required selected={selected.location} onPick={pickLocation} disabled={!writable || Boolean(sender)} />
-        {['destination','sender','receiver'].map((role, i) => <EntryLookup key={role} kind={role === 'sender' && !sender ? 'locations' : 'all-locations'} label={['Destination Location','Sender Location','Receiver Location'][i]}
-          selected={selected[role]} disabled={!writable || Boolean(sender)} onPick={loc => { change(role + '_location_id', loc?.id || null); setSelected(s => ({ ...s, [role]: loc })) }} />)}
-        <label>Operation Date<input name="operation_date" type="date" value={form.operation_date} onChange={e => change('operation_date', e.target.value)} /></label>
-        <label>Start Date/Time<input name="operation_start_datetime" type="datetime-local" value={form.operation_start_datetime} onChange={e => change('operation_start_datetime', e.target.value)} /></label>
-        <label>End Date/Time<input name="operation_end_datetime" type="datetime-local" value={form.operation_end_datetime} onChange={e => change('operation_end_datetime', e.target.value)} /></label>
-        <label>Product<input name="product_name" maxLength={150} value={form.product_name} placeholder="Example: Crude Oil" onChange={e => change('product_name', e.target.value)} /></label>
-        <label>Created By<input readOnly value={saved?.created_by || user?.username || ''} /><small>Authenticated actor — set by the API.</small></label>
-        <label>Status<input readOnly value={saved?.status || 'Draft'} /><small>Workflow actions require a saved, reviewed ticket.</small></label>
-        <label className="full-width-field">Remarks<textarea name="remarks" rows={3} maxLength={4000} value={form.remarks} onChange={e => change('remarks', e.target.value)} /></label>
-      </fieldset>
-      <fieldset disabled={!writable || busy} className="entry-layout-container" ref={layoutRef} onClickCapture={e => {
-        const action = e.target.closest('button, summary'); if (action) logUiAction('Operation Entry', 'Layout Action', { action: action.textContent?.trim() })
-      }} onChange={() => { setDirty(true); setSuccess('') }}>
+        </div>}
         {locked ? <Review ticket={saved} /> : (contextBusy || (form.asset_id && !context && !contextError)) ? <Loading label="Loading selected asset calibration and link…" /> : contextError ? <Alert tone="danger">{contextError}</Alert> : Layout && selectedAsset ?
           <Layout key={`${saved?.id || 'new'}-${seed}-${form.asset_id}-${form.payload_code}`} entry={layoutEntry} editId={saved?.id || null} selectedAsset={selectedAsset}
             assetCalibrationTables={charts} calibrationTemplates={CALIBRATION_TEMPLATE} handleValueChange={handleValueChange} setEntryField={setEntryField}
             receiverMode={Boolean(sender)} senderReference={senderReference} assets={[selectedAsset]} locations={Object.values(selected).filter(s => s?.location_code)} />
-          : <div className="info-box">Select an operation type, origin, operation and primary asset to load its fixed entry layout.</div>}
+          : <div className="info-box">Select an operation type, sender location and primary asset to load its fixed entry layout.</div>}
       </fieldset>
       {!locked && validation && <div className="entry-server-validation" aria-live="polite">
         {validation.errors?.length > 0 && <Alert tone="danger"><strong>Validation errors</strong><ul>{validation.errors.map((message,i) => <li key={i}>{message}</li>)}</ul></Alert>}
@@ -479,9 +505,15 @@ function OperationEntryPage() {
       <div className="entry-date-filters"><strong>Operation date</strong><label>From<input type="date" value={filters.date_from} onChange={e => setFilter('date_from', e.target.value)} /></label><label>To<input type="date" value={filters.date_to} onChange={e => setFilter('date_to', e.target.value)} /></label></div>
       <div className="entry-active-filters">{Object.entries(filters).filter(([k,v]) => v && !(k === 'status' && v === 'Draft,Rejected')).map(([k,v]) => <button className="tag" key={k} onClick={() => setFilter(k, '')} aria-label={`Remove ${human(k)} filter`}>{human(k)}: {v} ×</button>)}</div>
       {listError && <Alert tone="danger">{listError}</Alert>}
-      <div className="table-wrap"><table className="data-table" aria-busy={listBusy}><thead><tr>{['Ticket No.','Operation Type','Layout','Asset','Origin','Date','Product','Status','Fields','Actions'].map(h => <th key={h}>{h}</th>)}</tr></thead>
-        <tbody>{data.items.map(row => <tr key={row.id}><td className="mono">{row.ticket_number}</td><td>{row.operation_type_name}</td><td>{row.entry_layout_type}</td><td>{row.asset_name} ({row.asset_code})</td><td>{row.location_code}</td><td>{row.operation_date}</td><td>{row.product_name || '—'}</td><td><StatusTag status={row.status} tone={row.status === 'Submitted' ? 'warning' : row.status === 'Approved' ? 'success' : row.status === 'Rejected' ? 'danger' : 'info'} /></td><td>{row.field_count}</td><td>{rowActions(row)}</td></tr>)}
-          {!data.items.length && <tr><td colSpan={10}>{listBusy ? 'Loading tickets…' : 'No tickets match the current filters.'}</td></tr>}</tbody></table></div>
+      <div className="table-wrap"><table className="data-table entry-ticket-table" aria-label="Saved operation tickets" aria-busy={listBusy}><thead><tr>{['Ticket / Date','Operation / Layout','Primary Asset','Sender','Product','Status','Actions'].map(h => <th scope="col" key={h}>{h}</th>)}</tr></thead>
+        <tbody>{data.items.map(row => <tr key={row.id}>
+          <td><strong className="mono">{row.ticket_number}</strong><small>{row.operation_date}</small></td>
+          <td><strong>{row.operation_type_name}</strong><small>{row.entry_layout_type}</small></td>
+          <td><strong>{row.asset_name}</strong><small className="mono">{row.asset_code}</small></td>
+          <td>{row.location_code}</td><td>{row.product_name || '—'}</td>
+          <td><StatusTag status={row.status} tone={row.status === 'Submitted' ? 'warning' : row.status === 'Approved' ? 'success' : row.status === 'Rejected' ? 'danger' : 'info'} /></td>
+          <td>{rowActions(row)}</td></tr>)}
+          {!data.items.length && <tr><td colSpan={7}>{listBusy ? 'Loading tickets…' : 'No tickets match the current filters.'}</td></tr>}</tbody></table></div>
       <Pagination page={page} pageSize={pageSize} pages={data.pages} total={data.total} onPageChange={setPage} onPageSizeChange={n => { setPageSize(n); setPage(1) }} disabled={listBusy} />
     </section>
     {saved && <TicketHistory key={saved.id} ticket={saved} />}
