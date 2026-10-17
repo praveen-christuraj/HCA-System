@@ -1,0 +1,28 @@
+# Render Blueprint: deploy the FastAPI service from the existing backend Dockerfile.
+# Set secrets and DATABASE_URL in the Render dashboard after creating the service.
+services:
+  - type: web
+    name: hca-system-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: BOOTSTRAP_ADMIN_ON_STARTUP
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: SEED_ADMIN_USERNAME
+        value: admin
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

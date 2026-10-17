@@ -31,6 +31,10 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "sqlite:///./hca.db" if not IS_PRODUCTION else "",
 ).strip()
+# Supabase and Render often provide postgres:// URLs; SQLAlchemy expects the
+# explicit PostgreSQL dialect name. Keep psycopg2 as the driver (requirements).
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
 
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL must be set in production")
