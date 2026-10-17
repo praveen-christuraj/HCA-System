@@ -129,5 +129,6 @@ asset; a new upload replaces it and the audit row records the row count and char
 - Manual light/dark visual review of the two new pages in a browser.
 - PostgreSQL schema creation for the four new tables (tests run on SQLite; `create_all` runs at
   startup and no Alembic baseline exists yet).
-- XLSX chart upload was exercised through the same parser as CSV, but the specific
-  openpyxl read path for a multi-tank wide sheet was not run against a real Excel file.
+- XLSX chart upload is now covered by real generated workbooks: a long sheet in m and kL
+  (converted to cm and bbl on import), a multi-tank wide sheet, an undeclared-tank
+  rejection, and an XLSX asset register import.

@@ -1017,3 +1017,180 @@ def test_asset_list_pagination_contract(client, admin_headers):
         assert key in payload
     assert payload["page_size"] == 20
     assert payload["asset_types"]
+
+
+# ---------------------------------------------------------------------------
+# XLSX uploads (the same parser path as CSV, through openpyxl)
+# ---------------------------------------------------------------------------
+def _xlsx(rows: list[list]) -> bytes:
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    sheet = workbook.active
+    for row in rows:
+        sheet.append(row)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+XLSX_MIMETYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def test_xlsx_chart_in_metres_and_kilolitres_is_converted(client, admin_headers, location_id):
+    """A real Excel workbook in m and kL lands as canonical cm and bbl."""
+    asset = client.post(
+        "/api/assets",
+        json={
+            "asset_name": "Excel Chart Barge",
+            "asset_code": "BRG-XLSX-01",
+            "asset_type_code": "BARGE",
+            "asset_scope": "Local",
+            "location_id": location_id,
+            "calibration_required": True,
+            "tanks": [{"tank_name": "1P"}, {"tank_name": "1S"}],
+        },
+        headers=admin_headers,
+    ).json()
+
+    workbook = _xlsx(
+        [
+            ["Tank Name", "Dip/Ullage", "Volume"],
+            ["1P", 0, 0],
+            ["1P", 1, 6.289810770432105],
+            ["1P", 2, 12.57962154086421],
+            ["1S", 0, 0],
+            ["1S", 1, 6.289810770432105],
+            ["1S", 2, 12.57962154086421],
+        ]
+    )
+    response = client.post(
+        f"/api/assets/{asset['id']}/calibration/upload",
+        files={"file": ("chart.xlsx", io.BytesIO(workbook), XLSX_MIMETYPE)},
+        data={
+            "measurement_basis": "Dip",
+            "dip_unit": "m",
+            "volume_unit": "kl",
+            "confirm": "true",
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["format"] == "xlsx"
+    assert body["layout"] == "long"
+    assert body["imported"] == 6
+
+    chart = client.get(f"/api/assets/{asset['id']}/calibration", headers=admin_headers).json()
+    assert chart["chart"]["source_file_name"] == "chart.xlsx"
+    point = next(
+        row for row in chart["chart"]["rows"] if row["tank_name"] == "1P" and row["dip_cm"] == 100.0
+    )
+    # 1 m -> 100 cm, and 6.289810770432105 kL -> 39.56171952... bbl, because
+    # 1 kL = 6.289810770432105 bbl. volume_bbl is stored to six decimals, so the
+    # tolerance has to allow for that rounding rather than exact float equality.
+    expected_bbl = 6.289810770432105 * 6.289810770432105
+    assert point["volume_bbl"] == pytest.approx(expected_bbl, abs=1e-6)
+    assert point["source_dip_value"] == pytest.approx(1.0)
+
+
+def test_wide_xlsx_workbook_is_normalised(client, admin_headers, location_id):
+    asset = client.post(
+        "/api/assets",
+        json={
+            "asset_name": "Excel Wide Barge",
+            "asset_code": "BRG-XLSXWIDE-01",
+            "asset_type_code": "BARGE",
+            "asset_scope": "Local",
+            "location_id": location_id,
+            "calibration_required": True,
+            "tanks": [{"tank_name": "1P"}, {"tank_name": "1S"}],
+        },
+        headers=admin_headers,
+    ).json()
+
+    workbook = _xlsx([["Dip", "1P", "1S"], [0, 0, 0], [100, 10, 11], [200, 21, 22]])
+    response = client.post(
+        f"/api/assets/{asset['id']}/calibration/upload",
+        files={"file": ("book.xlsx", io.BytesIO(workbook), XLSX_MIMETYPE)},
+        data={
+            "measurement_basis": "Dip",
+            "dip_unit": "cm",
+            "volume_unit": "bbl",
+            "confirm": "true",
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["layout"] == "wide"
+    assert body["imported"] == 6
+    assert body["tanks_found"] == ["1P", "1S"]
+
+
+def test_xlsx_validation_rejects_an_undeclared_tank(client, admin_headers, location_id):
+    asset = client.post(
+        "/api/assets",
+        json={
+            "asset_name": "Excel Bad Tank Barge",
+            "asset_code": "BRG-XLSXBAD-01",
+            "asset_type_code": "BARGE",
+            "asset_scope": "Local",
+            "location_id": location_id,
+            "calibration_required": True,
+            "tanks": [{"tank_name": "1P"}],
+        },
+        headers=admin_headers,
+    ).json()
+
+    workbook = _xlsx(
+        [["Tank Name", "Dip/Ullage", "Volume"], ["9Z", 0, 0], ["9Z", 100, 10]]
+    )
+    response = client.post(
+        f"/api/assets/{asset['id']}/calibration/upload",
+        files={"file": ("bad.xlsx", io.BytesIO(workbook), XLSX_MIMETYPE)},
+        data={"measurement_basis": "Dip", "dip_unit": "cm", "volume_unit": "bbl"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["invalid_rows"] == 2
+    assert "not declared on this asset" in body["rows"][0]["errors"][0]
+
+
+def test_asset_register_xlsx_import(client, admin_headers, location_id):
+    workbook = _xlsx(
+        [
+            [
+                "asset_code",
+                "asset_name",
+                "asset_type",
+                "asset_scope",
+                "location_code",
+                "tank_names",
+                "calibration_required",
+            ],
+            ["BRG-XLSXIMP-01", "Imported Excel Barge", "Barge", "Local", "ASSET-TERM-01", "1P;1S", "Yes"],
+        ]
+    )
+    response = client.post(
+        "/api/assets/import",
+        files={"file": ("register.xlsx", io.BytesIO(workbook), XLSX_MIMETYPE)},
+        data={"confirm": "true"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["imported"] == 1
+
+    created = client.get(
+        "/api/assets",
+        params={"search": "BRG-XLSXIMP-01"},
+        headers=admin_headers,
+    ).json()
+    assert created["total"] == 1
+    asset = created["items"][0]
+    # The alias "Barge" folded onto the fixed catalog code.
+    assert asset["asset_type_code"] == "BARGE"
+    assert asset["tank_count"] == 2
+    assert asset["location_code"] == "ASSET-TERM-01"

@@ -81,7 +81,7 @@
 
 ## 3. Verification state and remaining work
 
-- Backend: `cd backend && ./.venv/bin/python -m pytest -q` → **65 passed, 1 warning**. Coverage
+- Backend: `cd backend && ./.venv/bin/python -m pytest -q` → **69 passed, 1 warning**. Coverage
   includes the master/assignment APIs, import preview and commit, hierarchy checks, Admin guards,
   standard permission enforcement, legacy grant migration, the hard-coded asset type catalog,
   unit conversion factors, chart validation, and 2D/3D interpolation.
