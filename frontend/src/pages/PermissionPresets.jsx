@@ -14,6 +14,7 @@ import {
 } from '../api/permissionPresetsApi'
 import { getPermissionCatalog, getRolePermissions, listRoles } from '../api/rolesApi'
 import Icon from '../components/common/Icon'
+import ConfirmDialog from '../components/common/ConfirmDialog'
 import MasterImportDialog from '../components/common/MasterImportDialog'
 import {
   Alert,
@@ -490,25 +491,6 @@ function ApplyPresetDialog({ preset, roles, onClose, onApplied }) {
   )
 }
 
-function ConfirmDialog({ title, message, confirmLabel, busy, onCancel, onConfirm }) {
-  return (
-    <div className="dialog-backdrop">
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="preset-confirm-title">
-        <div className="dialog-head">
-          <h2 id="preset-confirm-title" className="dialog-title">{title}</h2>
-          <p className="dialog-subtitle">{message}</p>
-        </div>
-        <div className="dialog-foot">
-          <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={busy}>
-            <Icon name="close" size={15} /> {busy ? 'Working…' : confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export default function PermissionPresets() {
   const { isAdmin, hasPermission } = usePermissions()
   const canCreate = isAdmin || hasPermission('permission_presets:create')
@@ -975,6 +957,7 @@ export default function PermissionPresets() {
 
       {deletePreset && (
         <ConfirmDialog
+          titleId="preset-confirm-title"
           title={`Delete “${deletePreset.preset_name}”?`}
           message="This permanently removes the preset and its permission rows, and frees a slot in the 20-preset catalog. It is only offered for presets that have never been applied; anything already applied to roles is deactivated instead so the history stays traceable."
           confirmLabel="Delete permanently"

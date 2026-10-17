@@ -27,8 +27,11 @@ from app.routers import (
     auth,
     dashboard,
     locations,
+    operation_types,
+    operations,
     permission_presets,
     permissions,
+    prime_mover_tanker_links,
     role_locations,
     roles,
     system,
@@ -97,6 +100,9 @@ app.include_router(locations.router, prefix=API_PREFIX)
 app.include_router(role_locations.router, prefix=API_PREFIX)
 app.include_router(assets.router, prefix=API_PREFIX)
 app.include_router(asset_calibration.router, prefix=API_PREFIX)
+app.include_router(prime_mover_tanker_links.router, prefix=API_PREFIX)
+app.include_router(operation_types.router, prefix=API_PREFIX)
+app.include_router(operations.router, prefix=API_PREFIX)
 app.include_router(user_roles.router, prefix=API_PREFIX)
 app.include_router(permissions.router, prefix=API_PREFIX)
 app.include_router(permission_presets.router, prefix=API_PREFIX)

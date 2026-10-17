@@ -2,7 +2,7 @@
 
 > Honest status board. **Never describe a Planned module as shipped.**
 > Updated whenever a module is added, partially delivered or completed.
-> Last updated: 2026-10-17 (permission preset delivery)
+> Last updated: 2026-10-17 (Prime Mover-Tanker Link and Configurations delivery)
 
 ---
 
@@ -12,8 +12,9 @@
 | --- | --- | --- |
 | **Home / Portfolio** | Cross-module KPIs, module status, recent audited activity | **Delivered (v0.1)** |
 | **User Management** | User Master, Role Master, Location Master, Permission Presets, Role Permission, Role Location, User Role assignment, profile and security | **Core identity, location access and RBAC delivered and verified:** user/role/location CRUD, imports/exports, permission assignments, capped named permission presets applied to roles in replace/add mode, role-location assignments, user-role assignments, reserved-Admin protections. Profile/security baseline remains available; further security administration is planned. |
-| **Master Data Management** | Asset Master over seven hard-coded asset types, tanks declared per asset, Asset Calibration with fixed three-column charts and dip-to-volume interpolation | **Asset Master and Asset Calibration delivered and verified:** fixed asset type catalog, Local/Global scoping, typed tanks, chart upload in cm/mm/m and L/kL/bbl converted to canonical cm/bbl, 2D and 3D interpolation, exports and full audit. Operation types, report profiles and flowmeter configuration remain planned. |
-| **Business / Operations** | Operation entry, transactions, workflow, tank/vessel operations, export operations, tracking | **Planned (OTMS extraction)** |
+| **Master Data Management** | Asset Master over seven hard-coded asset types, tanks declared per asset, Asset Calibration with fixed three-column charts and dip-to-volume interpolation, Prime Mover-Tanker Link | **Asset Master, Asset Calibration and Prime Mover-Tanker Link delivered and verified:** fixed asset type catalog, Local/Global scoping, typed tanks, chart upload in cm/mm/m and L/kL/bbl converted to canonical cm/bbl, 2D and 3D interpolation, exports and full audit. The link pairs one prime mover with one tanker trailer, allows one Active link per asset, and supports close, import and export. Report profiles and flowmeter configuration remain planned. |
+| **Configurations** | Fixed Operation Types mapped to asset types, the fixed operation categories with their stock signs, and the location-scoped Operation Master that feeds Operation Entry | **Operation Types and Operation Master delivered and verified:** hard-coded catalogue (ADR-019), read-only type and category pages, location-scoped operations with derived sign, unique code and name per location and type, deactivation, import, export and dashboard. OTMS Tracking Module Configuration is out of scope for now. Operation Entry waits for owner confirmation. |
+| **Business / Operations** | Operation entry, transactions, workflow, tank/vessel operations, export operations, tracking | **Planned (OTMS extraction).** Operation Entry is next, after owner confirmation. |
 | **Report Modules** | Tank stock ledger, out-turn, material balance, tanker transaction, tracking reports | **Planned (OTMS extraction)** |
 | **Back-up Modules** | Backup settings, backup jobs, restore requests and validation | **Planned (OTMS extraction)** |
 | **Auditing Modules** | Audit trail, security events, UI activity, module audit dashboard | **Delivered (v0.1):** audit trail with filters, pagination and CSV/XLSX/PDF export; module dashboard. Security-event view and archive/purge remain planned. |
@@ -59,7 +60,27 @@
   lookup through `app/services/calibration_engine.py` (2D within a tank, 3D across the asset's
   tanks by exact tank name).
 - Master Data dashboard KPIs (assets, tanks, charts, per-type breakdown over all seven fixed
-  types) and quick links are live and permission-filtered.
+  types, active links) and quick links are live and permission-filtered.
+- Prime Mover-Tanker Link (`/api/prime-mover-tanker-links`) pairs a `PRIME_MOVER` asset with a
+  `TANKER_TRAILER` asset by foreign key. It supports list with status and asset filters, a
+  separate linked-from date range, `options` for Active assets showing chassis numbers,
+  `current-by-prime-mover` and `current-by-tanker` lookups, create, update, close (sets the end date,
+  appends `Close Remarks`), permanent delete, CSV/XLSX/PDF export, and import preview and commit that
+  creates or updates on prime mover + tanker + linked-from. Exactly one Active link is allowed per
+  prime mover and per tanker. Global asset writes remain admin-only, and every mutation is audited
+  with before and after snapshots.
+- Operation types are a hard-coded catalogue in `app/utils/operation_types.py` (ADR-019). The six
+  types each map to one asset type. The eight categories each carry one stock sign:
+  SET (opening and closing stock), IN (receipt), OUT (dispatch, export, draining, decanting) or
+  NEUTRAL (ITT). `/api/operation-types` is read-only and reports live counts.
+- Operation Master (`/api/operations`) stores location-scoped operations of those fixed types. The
+  sign is derived from the category on every write. Code and name are unique per location and type,
+  ignoring case, across every status. Active operations need an Active location. Deactivation keeps
+  the row (no delete route), and import is create-only. Filters, a separate created-date range,
+  server pagination, CSV/XLSX/PDF export and audit are included. Non-admin users see only the
+  locations they are assigned to.
+- Configurations dashboard (`/api/dashboard/modules/configurations`) reports operation types,
+  categories, active operations and configured locations, with a per-type breakdown and quick links.
 
 ### Frontend
 
@@ -82,6 +103,12 @@
 - Asset Calibration page with chart coverage per tank, upload dialog (basis, units, preview with
   per-row validation and conversion columns), three-format export and a dip-to-volume calculator
   that shows the method and bracketing points of every resolved reading.
+- Prime Mover-Tanker Link page under Master Data, and a new Configurations group between Master
+  Data and Business (Module Dashboard, Operation Types, Operation Master). Both use the standard
+  `resource:action` permissions (`prime_mover_tanker_links:*`, `operation_types:read`,
+  `operations:*`). Link dialogs show a live warning when a chosen asset already has another Active
+  link. Deletes and deactivations use an in-app confirmation pop-up instead of `window.confirm`.
+- The confirmation pop-up is now a shared component, `components/common/ConfirmDialog.jsx`.
 - Navy/white design system with light/dark/system theme support; no new side navigation or
   non-standard CRUD permissions.
 
@@ -90,27 +117,36 @@
 - Docker Compose remains PostgreSQL + FastAPI + nginx-served React; the cloud API deploy remains
   native Python on Render. SQLAlchemy `create_all` creates the Location, RoleLocation, Asset,
   AssetTank, AssetCalibrationTable, AssetCalibrationRow, PermissionPreset and
-  PermissionPresetItem tables at startup; no Alembic baseline has been introduced yet. The
-  permission catalog grows from 26 to 30 rows with the `permission_presets` resource.
+  PermissionPresetItem tables at startup, and the new `prime_mover_tanker_links` and `operations`
+  tables with them; no Alembic baseline has been introduced yet. The permission catalog grows from
+  30 to 39 standard rows with the `prime_mover_tanker_links`, `operation_types` and `operations`
+  resources.
 
 ## 3. Verification state and remaining work
 
-- Backend: `cd backend && ./.venv/bin/python -m pytest -q` → **80 passed, 1 warning**. Coverage
-  includes the master/assignment APIs, import preview and commit, hierarchy checks, Admin guards,
+- Backend: `cd backend && python -m pytest -q` → **116 passed, 1 warning**. New coverage (36 tests):
+  link validation, asset type and status checks, one-active-link rules, close, scope, import
+  preview and commit, export, dashboard KPIs (`tests/test_prime_mover_tanker_links.py`); the fixed
+  catalogue and sign derivation, uniqueness, location scope, deactivation, import, export, audit,
+  RBAC and the Configurations dashboard (`tests/test_configurations.py`). Earlier coverage includes the master/assignment APIs, import preview and commit, hierarchy checks, Admin guards,
   standard permission enforcement, legacy grant migration, the hard-coded asset type catalog,
   unit conversion factors, chart validation, 2D/3D interpolation, and the permission preset cap,
   apply modes, apply guards and preset RBAC.
-- Frontend: `cd frontend && npm run build` → **success** (Vite 8.3.4 production build, 68 modules).
+- Frontend: `cd frontend && npm run build` → **success** (Vite 8.3.4, 74 modules). The main chunk is 515 kB, above Vite's 500 kB warning threshold; the Configurations and link pages are not code-split yet.
 - Dependency install: `cd frontend && npm ci` → **success, 0 reported vulnerabilities**.
 - Live HTTP smoke tests through uvicorn and the Vite proxy → **36/36 checks** for the asset and
   calibration path and **78/78 checks** for the permission preset path (both end to end).
 - A temporary jsdom harness rendered the real preset components and the updated assignment page
   against a stubbed API → **58/58 DOM checks** (harness not committed).
-- Manual browser smoke tests, PostgreSQL deployment-schema verification and light/dark visual
-  review of the new pages have **not** been run in this delivery (no browser binary is installable
+- Browser review (headless Chromium, live backend and Vite): Prime Mover-Tanker Link in light
+  theme; Operation Master, Operation Types and the Configurations dashboard in dark theme. Each
+  rendered without console errors. Dialogs (link, close, operation, deactivate and delete
+  pop-ups), the Permission Presets confirm dialog after its extraction, and the light theme of the
+  Configurations pages were **not** exercised in a browser in this delivery.
+- PostgreSQL deployment-schema verification has **not** been run in this delivery (no browser binary is installable
   in the sandbox; the new tables were instead compiled through the PostgreSQL dialect). An XLSX
   wide-sheet calibration upload against a real Excel file has **not** been exercised (CSV wide
   layout has).
-- Profile & Security enhancements, an Alembic migration baseline, operation type/report profile
-  masters, business operations, reports, backup, audit archive/retention and security-event
+- Profile & Security enhancements, an Alembic migration baseline, report profile masters, Operation
+  Entry (waiting for owner confirmation), OTMS Tracking Module Configuration, business operations, reports, backup, audit archive/retention and security-event
   dashboard remain planned.

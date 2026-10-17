@@ -98,6 +98,33 @@ RESOURCE_PERMISSION_DEFINITIONS = [
         "actions": (READ, CREATE, UPDATE, DELETE),
     },
     {
+        # Prime Mover-Tanker Link: which tanker trailer each prime mover hauls,
+        # and for which dates. Edit covers closing a link.
+        "resource": "prime_mover_tanker_links",
+        "module_name": "Prime Mover-Tanker Link",
+        "category": "Master Data Management",
+        "label": "prime mover to tanker trailer links",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
+        # Hard-coded operation types and categories. Read-only: the catalogue
+        # is fixed by the system, so there is no create, update or delete.
+        "resource": "operation_types",
+        "module_name": "Operation Types",
+        "category": "Configurations",
+        "label": "the fixed operation types and operation categories",
+        "actions": (READ,),
+    },
+    {
+        # Location-scoped operations under the fixed types and categories.
+        # These populate the Operation Entry dropdowns.
+        "resource": "operations",
+        "module_name": "Operation Master",
+        "category": "Configurations",
+        "label": "location operations",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
         "resource": "audit",
         "module_name": "Audit Trail",
         "category": "Auditing Modules",
