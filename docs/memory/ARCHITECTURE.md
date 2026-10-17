@@ -31,7 +31,7 @@ HCA-System/
 │   │   ├── main.py               # app factory, lifespan seeding, middleware, routers
 │   │   ├── dependencies/         # auth + RBAC dependencies
 │   │   ├── routers/              # one router per module (auth, users, roles, audit...)
-│   │   ├── services/             # audit, RBAC catalog, dashboard aggregation
+│   │   ├── services/             # audit, RBAC catalog, dashboard aggregation, import validation
 │   │   ├── utils/                # jwt, security, pagination, permissions catalog
 │   │   └── seed_admin.py         # idempotent admin + catalog seeding (standalone)
 │   ├── tests/                    # pytest suite (SQLite)
@@ -242,7 +242,8 @@ The login page uses `admin_seeded` to show the first-run administrator warning.
   pagination and admin seeding).
 - Frontend: `cd frontend && npm run build` (production bundle must succeed).
 - Manual: login in light and dark, failed login, session restore, permission-filtered menu,
-  audit trail pagination/filters/export, 403 page.
+  audit trail pagination/filters/export, inline permission-denied panel, user import preview
+  and commit, user and audit exports in three formats.
 - Every delivery records its evidence in `docs/changes/<date>-<topic>.md`.
 
 ---
