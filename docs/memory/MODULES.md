@@ -46,7 +46,9 @@
   CSV/XLSX/PDF exports, audited replacement and bounded CSV/XLSX preview/commit imports. Each
   assignment import validates the complete file before replacing any row; the reserved Admin
   role/account cannot be modified through these assignment modules.
-- Shared master import parser caps files at 5,000 data rows. Role permissions accept
+- Shared master import parser caps files at 5,000 data rows, except calibration charts, which
+  read with their own `CALIBRATION_MAX_ROWS` / `CALIBRATION_MAX_UPLOAD_MB` ceiling (ADR-021).
+  Role permissions accept
   `role_name,permission_names`; role locations accept `role_name,location_codes`; user roles
   accept `username,role_names`. Multi-value cells use semicolon-separated standard keys/names.
 - Asset Master registers assets against the seven hard-coded asset types
@@ -58,7 +60,9 @@
   canonical cm and bbl (`app/services/calibration_import.py`), accepts cm/mm/m and L/kL/bbl
   source units plus long and wide upload layouts, and exposes single and batch dip-to-volume
   lookup through `app/services/calibration_engine.py` (2D within a tank, 3D across the asset's
-  tanks by exact tank name).
+  tanks by exact tank name). Charts are not bound by the 5,000-row master import cap: the ceiling
+  is `CALIBRATION_MAX_ROWS` points (default 100,000) over `CALIBRATION_MAX_UPLOAD_MB` (default
+  50 MB), and `0` lifts either (ADR-021).
 - Master Data dashboard KPIs (assets, tanks, charts, per-type breakdown over all seven fixed
   types, active links) and quick links are live and permission-filtered.
 - Prime Mover-Tanker Link (`/api/prime-mover-tanker-links`) pairs a `PRIME_MOVER` asset with a

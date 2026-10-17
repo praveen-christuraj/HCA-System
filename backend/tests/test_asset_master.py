@@ -1324,3 +1324,176 @@ def test_location_scoped_user_sees_only_global_and_own_locations(client, admin_h
     assert client.get(f"/api/assets/{at_home['id']}", headers=scoped).status_code == 200
     assert client.get(f"/api/assets/{shared['id']}", headers=scoped).status_code == 200
     assert client.get(f"/api/assets/{far_away['id']}", headers=scoped).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Large charts: the master-data row ceiling must not apply to calibration
+# ---------------------------------------------------------------------------
+def _big_asset(client, admin_headers, location_id, asset_code: str, tanks: list[str]) -> dict:
+    response = client.post(
+        "/api/assets",
+        json={
+            "asset_name": f"Large Chart {asset_code}",
+            "asset_code": asset_code,
+            "asset_type_code": "BARGE",
+            "asset_scope": "Local",
+            "location_id": location_id,
+            "calibration_required": True,
+            "tanks": [{"tank_name": name} for name in tanks],
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _synthetic_chart(points_per_tank: int, tanks: list[str]) -> bytes:
+    """A strapping table of the size real calibration books reach."""
+    rows = [["tank_name", "dip_ullage", "volume"]]
+    for tank in tanks:
+        for step in range(points_per_tank):
+            rows.append([tank, str(step), f"{step * 0.05:.4f}"])
+    return _csv(rows)
+
+
+def _upload(client, admin_headers, asset_id: int, content: bytes, confirm: bool):
+    return client.post(
+        f"/api/assets/{asset_id}/calibration/upload",
+        files={"file": ("large-chart.csv", io.BytesIO(content), "text/csv")},
+        data={
+            "chart_name": "Large strapping table",
+            "measurement_basis": "Dip",
+            "dip_unit": "cm",
+            "volume_unit": "bbl",
+            "confirm": "true" if confirm else "false",
+        },
+        headers=admin_headers,
+    )
+
+
+def test_chart_of_12000_points_uploads_in_full(client, admin_headers, location_id):
+    """A chart well beyond the old 5,000-row ceiling is stored complete."""
+    asset = _big_asset(client, admin_headers, location_id, "BRG-BIGCHART-01", ["1P"])
+    content = _synthetic_chart(12_000, ["1P"])
+
+    preview = _upload(client, admin_headers, asset["id"], content, confirm=False)
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["valid_rows"] == 12_000
+    assert body["invalid_rows"] == 0
+    # The response previews the head of the file, but everything was validated.
+    assert len(body["rows"]) == 500
+    assert body["total_rows"] == 12_000
+
+    commit = _upload(client, admin_headers, asset["id"], content, confirm=True)
+    assert commit.status_code == 200, commit.text
+    assert commit.json()["imported"] == 12_000
+
+    chart = client.get(f"/api/assets/{asset['id']}/calibration", headers=admin_headers).json()[
+        "chart"
+    ]
+    assert chart["row_count"] == 12_000
+    assert chart["rows_returned"] == 12_000
+    assert chart["rows_truncated"] is False
+    assert chart["tank_point_counts"] == [{"tank_name": "1P", "points": 12_000}]
+
+    # The last point of the chart resolves, so nothing was dropped on the floor.
+    lookup = client.post(
+        f"/api/assets/{asset['id']}/calibration/lookup",
+        json={"tank_name": "1P", "dip_value": 11_999, "dip_unit": "cm", "volume_unit": "bbl"},
+        headers=admin_headers,
+    )
+    assert lookup.status_code == 200, lookup.text
+    assert lookup.json()["method"] == "exact"
+    assert lookup.json()["volume_bbl"] == pytest.approx(599.95)
+
+
+def test_chart_point_ceiling_is_configurable_and_can_be_lifted(
+    client, admin_headers, location_id, monkeypatch
+):
+    """``CALIBRATION_MAX_ROWS`` bounds points, and 0 lifts the bound."""
+    from app.services import calibration_import
+
+    asset = _big_asset(client, admin_headers, location_id, "BRG-BIGCHART-02", ["1P", "1S"])
+    # Wide layout: 3 file rows x 2 tanks = 6 calibration points.
+    wide = _csv(
+        [
+            ["dip", "1P", "1S"],
+            ["0", "0", "0"],
+            ["100", "10", "10"],
+            ["200", "20", "20"],
+        ]
+    )
+
+    monkeypatch.setattr(calibration_import, "MAX_CHART_ROWS", 4)
+    refused = _upload(client, admin_headers, asset["id"], wide, confirm=False)
+    assert refused.status_code == 200, refused.text
+    messages = [error for row in refused.json()["rows"] for error in row["errors"]]
+    assert any("exceeds the 4-point limit" in message for message in messages)
+
+    # The preview reports it and the commit refuses to write the chart.
+    blocked = _upload(client, admin_headers, asset["id"], wide, confirm=True)
+    assert blocked.status_code == 422, blocked.text
+
+    monkeypatch.setattr(calibration_import, "MAX_CHART_ROWS", 0)
+    accepted = _upload(client, admin_headers, asset["id"], wide, confirm=False)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["valid_rows"] == 6
+
+    committed = _upload(client, admin_headers, asset["id"], wide, confirm=True)
+    assert committed.status_code == 200, committed.text
+    assert committed.json()["imported"] == 6
+
+
+def test_shared_master_import_keeps_its_cap_for_master_data():
+    """Lifting the calibration ceiling must not lift the master-data one."""
+    from app.services.master_import import read_master_import
+
+    content = _csv(
+        [["tank_name", "dip_ullage", "volume"]]
+        + [["T1", str(step), str(step)] for step in range(6_000)]
+    )
+    with pytest.raises(ValueError, match="5,000-row"):
+        read_master_import(content, "big.csv")
+
+    lifted = read_master_import(content, "big.csv", max_rows=None)
+    assert len(lifted["rows"]) == 6_000
+
+
+def test_large_chart_exports_complete_csv_and_bounded_pdf(
+    client, admin_headers, location_id, monkeypatch
+):
+    """CSV/XLSX carry the whole chart; the print-grade PDF is bounded and says so."""
+    from app.routers import asset_calibration
+
+    asset = _big_asset(client, admin_headers, location_id, "BRG-BIGCHART-03", ["1P"])
+    commit = _upload(client, admin_headers, asset["id"], _synthetic_chart(6_000, ["1P"]), confirm=True)
+    assert commit.status_code == 200, commit.text
+
+    exported = client.get(
+        f"/api/assets/{asset['id']}/calibration/export",
+        params={"format": "csv"},
+        headers=admin_headers,
+    )
+    assert exported.status_code == 200, exported.text
+    text = exported.content.decode("utf-8-sig")
+    # The last point of the chart is in the file, so nothing was dropped.
+    assert "1P,5999.0,299.95,5999.0,299.95" in text
+    assert text.count("\n") >= 6_001
+
+    monkeypatch.setattr(asset_calibration, "MAX_EXPORT_ROWS", 1_000)
+    pdf = client.get(
+        f"/api/assets/{asset['id']}/calibration/export",
+        params={"format": "pdf"},
+        headers=admin_headers,
+    )
+    assert pdf.status_code == 200, pdf.text
+    assert "application/pdf" in pdf.headers["content-type"]
+
+    audit = client.get(
+        "/api/audit-logs",
+        params={"action": "Export Calibration Chart", "page_size": 20},
+        headers=admin_headers,
+    ).json()
+    summaries = " ".join(str(item.get("details_summary") or "") for item in audit["items"])
+    assert "PDF limited to the first 1,000 of 6,000 rows" in summaries

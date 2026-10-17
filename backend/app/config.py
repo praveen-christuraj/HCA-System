@@ -93,6 +93,19 @@ MAX_PAGE_SIZE = 500
 MAX_EXPORT_ROWS = 50_000
 
 # ---------------------------------------------------------------------------
+# Calibration chart uploads (owner decision 2026-10-17)
+# ---------------------------------------------------------------------------
+# A calibration book is not master data: a single barge or FSO strapping table
+# routinely carries more than 25,000 points, so the 5,000-row master import cap
+# must never apply to a chart. The ceiling below exists only so that a runaway
+# file cannot exhaust the container — it is far above any real chart. Set
+# CALIBRATION_MAX_ROWS=0 and CALIBRATION_MAX_UPLOAD_MB=0 on a host with the
+# memory to lift the ceiling entirely.
+CALIBRATION_MAX_ROWS = int(os.getenv("CALIBRATION_MAX_ROWS", "100000"))
+CALIBRATION_MAX_UPLOAD_MB = int(os.getenv("CALIBRATION_MAX_UPLOAD_MB", "50"))
+CALIBRATION_MAX_UPLOAD_BYTES = CALIBRATION_MAX_UPLOAD_MB * 1024 * 1024
+
+# ---------------------------------------------------------------------------
 # Permission presets (RBAC administration)
 # ---------------------------------------------------------------------------
 # A preset is a named, reusable set of standard permissions that can be applied

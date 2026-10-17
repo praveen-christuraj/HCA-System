@@ -267,6 +267,9 @@ def calibration_table_to_dict(
     if include_rows:
         payload["rows"] = [calibration_row_to_dict(row) for row in selected]
         payload["rows_returned"] = len(selected)
+        # A caller that asked for rows must be able to tell a complete chart
+        # from a bounded one — charts now run to tens of thousands of points.
+        payload["rows_truncated"] = len(selected) < len(rows)
     return payload
 
 

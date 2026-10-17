@@ -15,8 +15,10 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
+from sqlalchemy import insert
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.config import CALIBRATION_MAX_ROWS, MAX_EXPORT_ROWS
 from app.database import get_db
 from app.dependencies.permissions import require_permission
 from app.models import Asset, AssetCalibrationRow, AssetCalibrationTable, AssetTank, User
@@ -50,6 +52,12 @@ MODULE_NAME = "Asset Calibration"
 # Depth readings further than this outside the certified range are refused even
 # when clamping is allowed.
 BATCH_LOOKUP_LIMIT = 200
+
+# A chart is admitted up to ``CALIBRATION_MAX_ROWS`` points, so the read
+# endpoint uses the same ceiling: a stored chart is never returned truncated
+# while reporting a larger ``row_count``. Lifting the ceiling (0) returns the
+# whole chart, and ``rows_truncated`` always says which happened.
+CHART_ROWS_RESPONSE_LIMIT = CALIBRATION_MAX_ROWS or None
 
 
 def _load_asset(db: Session, asset_id: int) -> Asset:
@@ -139,7 +147,9 @@ def get_calibration(
             key=str.casefold,
         )
         if include_rows:
-            payload["chart"] = calibration_table_to_dict(table, include_rows=True, row_limit=5000)
+            payload["chart"] = calibration_table_to_dict(
+                table, include_rows=True, row_limit=CHART_ROWS_RESPONSE_LIMIT
+            )
     return payload
 
 
@@ -192,9 +202,18 @@ def export_calibration(
         ]
         for row in rows
     ]
+    # CSV and XLSX carry the whole chart: they are how a strapping table leaves
+    # the system. A print-grade PDF cannot usefully hold tens of thousands of
+    # points, so it is bounded like every other PDF export and says so.
+    pdf_note = ""
+    if format == "pdf" and len(body) > MAX_EXPORT_ROWS:
+        pdf_note = (
+            f"; PDF limited to the first {MAX_EXPORT_ROWS:,} of {len(body):,} rows "
+            f"(export CSV or XLSX for the complete chart)"
+        )
     filters_summary = (
         f"asset={asset.asset_code}; chart={table.chart_name}; "
-        f"basis={table.measurement_basis}; tank={tank_name or 'all'}"
+        f"basis={table.measurement_basis}; tank={tank_name or 'all'}{pdf_note}"
     )
     create_audit_log(
         db,
@@ -216,7 +235,8 @@ def export_calibration(
         )
     if format == "pdf":
         return pdf_response(
-            f"calibration-{asset.asset_code}", "Calibration Chart", headers, body,
+            f"calibration-{asset.asset_code}", "Calibration Chart", headers,
+            body[:MAX_EXPORT_ROWS],
             [40, 34, 34, 26, 30],
             filters_summary=filters_summary,
             orientation="P",
@@ -446,24 +466,35 @@ def upload_calibration(
     existing.updated_at = utcnow()
     db.flush()
 
+    # A chart can hold tens of thousands of points, so the rows are written
+    # with one bulk statement rather than through the unit of work: tracking
+    # 100,000 mapped objects costs both the memory and the flush time that a
+    # large calibration book should not have to pay.
+    stored_at = utcnow()
+    new_rows = []
     for index, row in enumerate(
         [item for item in parsed.rows if item["valid"]], start=1
     ):
         tank = tank_by_name.get(str(row["tank_name"]).casefold())
         if tank is None:
+            # Defensive only: validation already rejected an unknown tank.
             continue
-        db.add(
-            AssetCalibrationRow(
-                calibration_table_id=existing.id,
-                tank_id=tank.id,
-                row_number=index,
-                dip_cm=row["dip_cm"],
-                volume_bbl=row["volume_bbl"],
-                source_dip_value=row["dip_value"],
-                source_volume_value=row["volume_value"],
-                created_at=utcnow(),
-            )
+        new_rows.append(
+            {
+                "calibration_table_id": existing.id,
+                "tank_id": tank.id,
+                "row_number": index,
+                "dip_cm": row["dip_cm"],
+                "volume_bbl": row["volume_bbl"],
+                "source_dip_value": row["dip_value"],
+                "source_volume_value": row["volume_value"],
+                "created_at": stored_at,
+            }
         )
+    if new_rows:
+        # Autoflush runs first, so a replaced chart's old rows are deleted
+        # before the new ones land on the same unique point constraint.
+        db.execute(insert(AssetCalibrationRow), new_rows)
     db.flush()
 
     create_audit_log(

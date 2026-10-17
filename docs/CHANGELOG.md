@@ -5,6 +5,31 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-17 — Calibration upload: 5,000-row ceiling removed
+
+**Note:** [`changes/2026-10-17-calibration-chart-size-limit.md`](changes/2026-10-17-calibration-chart-size-limit.md)
+
+- Calibration charts are no longer refused above 5,000 rows. The chart parser stopped inheriting
+  the master-data reader's ceiling and now reads with `CALIBRATION_MAX_ROWS` (default 100,000
+  points, `0` lifts it) and `CALIBRATION_MAX_UPLOAD_MB` (default 50 MB, `0` lifts it). The ceiling
+  counts calibration points, not file rows, because a wide layout expands one row per tank column.
+- `read_master_import` takes `max_rows`/`max_bytes`; master data, users, references and tickets keep
+  their 5,000-row / 5 MB ceilings unchanged.
+- nginx now allows 100 MB on `/api/` (its 1 MB default answered `413` before the API saw the file),
+  and the read endpoint's row cap follows the same configured ceiling so a stored chart is never
+  returned truncated — `rows_truncated` now says so explicitly.
+- Large commits are written with one bulk statement instead of the unit of work: a 100,000-point
+  chart went from 10.62 s / 543 MB to 3.62 s / 478 MB (SQLite, single process). 12,000 points
+  preview in 0.24 s and commit in 1.24 s; 25,000 in 0.58 s / 2.42 s.
+- The chart's PDF export is now bounded by `MAX_EXPORT_ROWS` and records the truncation in the
+  audit trail; CSV and XLSX still carry every point.
+- The calibration page no longer downloads every chart row it does not render, and its preview note
+  quotes the real file size rather than the 500-row response slice.
+- Verification: **186 backend tests** (182 before), including a 12,000-point chart uploaded,
+  stored, exported and looked up end to end; all four new tests fail on the pre-fix source. Frontend
+  production build succeeds. Playwright and a live PostgreSQL/Docker deployment are not claimed,
+  and the nginx directive is not syntax-checked here (no nginx binary in the environment).
+
 ## 2026-10-17 — Operation Entry: fixed OTMS payloads and ticket lifecycle
 
 **Note:** [`changes/2026-10-17-operation-entry.md`](changes/2026-10-17-operation-entry.md)
