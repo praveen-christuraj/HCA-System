@@ -5,6 +5,26 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-17 — User, Role and Location Master modules
+
+**Note:** [`changes/2026-10-17-user-role-location-masters.md`](changes/2026-10-17-user-role-location-masters.md)
+
+| Area | Delivered |
+| --- | --- |
+| User Master | Added create/edit/deactivate, password reset, role management, permission-aware import/export and reserved-Admin safeguards. |
+| Role Master | Added configurable role CRUD, standard permission assignment, filters, import and CSV/XLSX/PDF export. |
+| Location Master | Added typed hierarchical locations with parent-cycle/assignment safeguards, CRUD, filters, import and CSV/XLSX/PDF export. |
+| Assignment modules | Added Role Permission, Role Location and User Role pages/APIs with filtered pagination, audited replacement, CSV/XLSX preview-and-confirm import, and CSV/XLSX/PDF export. Imports validate all rows before changing assignments. |
+| Permissions | Standard `resource:action` capabilities are provisioned idempotently from `RESOURCE_PERMISSION_DEFINITIONS`; legacy title-based grants migrate to standard permissions. Assignment writes use `assignments:write`. Reserved Admin protections are enforced. |
+| Project memory | Updated Rule 11, architecture and module status to require automatic standard permission provisioning for every new page/resource. |
+
+**Verification**
+
+- `cd backend && ./.venv/bin/python -m pytest -q` → `26 passed, 1 warning`.
+- `cd frontend && npm ci` → success, 0 reported vulnerabilities.
+- `cd frontend && npm run build` → success (Vite 8.3.4).
+- Manual browser/light-dark smoke tests and PostgreSQL deployment-schema verification remain outstanding.
+
 ## 2026-10-17 — Render API deployment switched to native Python 3 (no Dockerfile)
 
 **Note:** [`changes/2026-10-17-render-python-runtime.md`](changes/2026-10-17-render-python-runtime.md)

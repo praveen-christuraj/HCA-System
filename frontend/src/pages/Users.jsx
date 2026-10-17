@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { downloadUsersExport, listRoles, listUsers } from '../api/usersApi'
+import {
+  downloadUsersExport,
+  listRoles,
+  listUsers,
+} from '../api/usersApi'
 import Icon from '../components/common/Icon'
 import {
   Alert,
@@ -11,6 +15,8 @@ import {
   StatusTag,
 } from '../components/common/Ui'
 import ImportUsersDialog from '../components/users/ImportUsersDialog'
+import ResetUserPasswordDialog from '../components/users/ResetUserPasswordDialog'
+import UserFormDialog from '../components/users/UserFormDialog'
 import { usePermissions } from '../hooks/usePermissions'
 import { logUiAction } from '../utils/actionLogger'
 
@@ -23,7 +29,11 @@ const EMPTY_FILTERS = {
   date_to: '',
 }
 
-function UserDetailDialog({ user, onClose }) {
+const isReservedAdminUser = (user) =>
+  user?.username?.trim().toLowerCase() === 'admin' ||
+  user?.roles?.some((role) => role.role_name?.trim().toLowerCase() === 'admin')
+
+function UserDetailDialog({ user, onClose, canUpdate, isAdmin, onEdit, onReset }) {
   if (!user) return null
   return (
     <div className="dialog-backdrop">
@@ -62,9 +72,17 @@ function UserDetailDialog({ user, onClose }) {
           </div>
         </div>
         <div className="dialog-foot">
-          <button type="button" className="btn btn-secondary" onClick={onClose}>
-            Close
-          </button>
+          {canUpdate && (isAdmin || !isReservedAdminUser(user)) && (
+            <>
+              <button type="button" className="btn btn-secondary" onClick={onReset}>
+                <Icon name="key" size={15} /> Reset password
+              </button>
+              <button type="button" className="btn btn-primary" onClick={onEdit}>
+                <Icon name="settings" size={15} /> Edit user
+              </button>
+            </>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>
@@ -84,11 +102,18 @@ export default function Users() {
   const [roles, setRoles] = useState([])
   const [exporting, setExporting] = useState('')
   const [selectedUser, setSelectedUser] = useState(null)
+  const [editingUser, setEditingUser] = useState(null)
+  const [showUserForm, setShowUserForm] = useState(false)
+  const [passwordUser, setPasswordUser] = useState(null)
   const [showImport, setShowImport] = useState(false)
   const [notice, setNotice] = useState('')
 
-  const canExport = isAdmin || hasPermission('Export User')
-  const canImport = isAdmin || hasPermission('Create User')
+  const canCreate = isAdmin || hasPermission('users:create')
+  const canUpdate = isAdmin || hasPermission('users:update')
+  const canReadRoles = isAdmin || hasPermission('roles:read')
+  const canAssignRoles = (isAdmin || hasPermission('assignments:write')) && canReadRoles
+  const canExport = isAdmin || hasPermission('users:read')
+  const canImport = canCreate
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -110,8 +135,8 @@ export default function Users() {
 
   useEffect(() => {
     let active = true
-    if (isAdmin || hasPermission('View Role')) {
-      listRoles({ page: 1, page_size: 200 })
+    if (canReadRoles) {
+      listRoles({ page: 1, page_size: 200, status: 'Active' })
         .then((response) => {
           if (active) setRoles(response.items || [])
         })
@@ -120,7 +145,7 @@ export default function Users() {
     return () => {
       active = false
     }
-  }, [isAdmin, hasPermission])
+  }, [isAdmin, hasPermission, canReadRoles])
 
   const activeChips = useMemo(() => {
     const chips = []
@@ -177,12 +202,19 @@ export default function Users() {
       <PageHead
         eyebrow="USER MANAGEMENT / USER MASTER"
         title="User Master"
-        description="Read-only register for v0.1. Server-side pagination, quick and advanced filters, a dedicated created-date range and audited exports are enabled. Create and edit screens ship in the next increment."
+        description="Manage user accounts, access status, role assignments and password resets. Search, filter and export a fully audited user register."
         actions={
-          <button type="button" className="btn btn-secondary" onClick={load} disabled={loading}>
-            <Icon name="refresh" size={15} />
-            Refresh
-          </button>
+          <>
+            {canCreate && (
+              <button type="button" className="btn btn-primary" onClick={() => { setEditingUser(null); setShowUserForm(true); setNotice('') }}>
+                <Icon name="user" size={15} /> Add new user
+              </button>
+            )}
+            <button type="button" className="btn btn-secondary" onClick={load} disabled={loading}>
+              <Icon name="refresh" size={15} />
+              Refresh
+            </button>
+          </>
         }
       />
 
@@ -418,18 +450,29 @@ export default function Users() {
                       <td className="nowrap">{formatDateTime(user.last_login_at)}</td>
                       <td className="nowrap">{formatDateTime(user.created_at)}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-compact"
-                          onClick={() => {
-                            setSelectedUser(user)
-                            logUiAction('User Master', 'View User', { username: user.username })
-                          }}
-                          aria-label={`View ${user.username}`}
-                        >
-                          <Icon name="eye" size={15} />
-                          View
-                        </button>
+                        <div className="table-actions">
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-compact"
+                            onClick={() => {
+                              setSelectedUser(user)
+                              logUiAction('User Master', 'View User', { username: user.username })
+                            }}
+                            aria-label={`View ${user.username}`}
+                          >
+                            <Icon name="eye" size={15} /> View
+                          </button>
+                          {canUpdate && (isAdmin || !isReservedAdminUser(user)) && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-compact"
+                              onClick={() => { setEditingUser(user); setShowUserForm(true); setNotice('') }}
+                              aria-label={`Edit ${user.username}`}
+                            >
+                              <Icon name="settings" size={15} /> Edit
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -458,7 +501,42 @@ export default function Users() {
       </section>
 
       {selectedUser && (
-        <UserDetailDialog user={selectedUser} onClose={() => setSelectedUser(null)} />
+        <UserDetailDialog
+          user={selectedUser}
+          canUpdate={canUpdate}
+          isAdmin={isAdmin}
+          onClose={() => setSelectedUser(null)}
+          onEdit={() => { setEditingUser(selectedUser); setSelectedUser(null); setShowUserForm(true) }}
+          onReset={() => { setPasswordUser(selectedUser); setSelectedUser(null) }}
+        />
+      )}
+
+      {showUserForm && (
+        <UserFormDialog
+          user={editingUser}
+          roles={roles}
+          canAssignRoles={canAssignRoles}
+          onClose={() => { setShowUserForm(false); setEditingUser(null) }}
+          onSaved={(savedUser, message) => {
+            setShowUserForm(false)
+            setEditingUser(null)
+            setNotice(message)
+            setPage(1)
+            load()
+          }}
+        />
+      )}
+
+      {passwordUser && (
+        <ResetUserPasswordDialog
+          user={passwordUser}
+          onClose={() => setPasswordUser(null)}
+          onSaved={(message) => {
+            setPasswordUser(null)
+            setNotice(message)
+            load()
+          }}
+        />
       )}
 
       {showImport && (

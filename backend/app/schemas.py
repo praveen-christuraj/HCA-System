@@ -7,7 +7,7 @@ so that every router returns the same field names.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -50,7 +50,7 @@ class ChangePasswordRequest(BaseModel):
 class RoleCreate(BaseModel):
     role_name: str = Field(min_length=2, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
-    status: str = "Active"
+    status: Literal["Active", "Inactive"] = "Active"
 
 
 class PermissionCreate(BaseModel):
@@ -65,6 +65,37 @@ class RolePermissionUpdate(BaseModel):
     permission_ids: list[int] = Field(default_factory=list)
 
 
+class UserRolesUpdate(BaseModel):
+    role_ids: list[int] = Field(default_factory=list)
+
+
+class RoleLocationsUpdate(BaseModel):
+    location_ids: list[int] = Field(default_factory=list)
+
+
+class LocationCreate(BaseModel):
+    location_name: str = Field(min_length=2, max_length=150)
+    location_code: str = Field(min_length=1, max_length=50, pattern=r"^[A-Za-z0-9._-]+$")
+    location_type: str = Field(min_length=2, max_length=100)
+    parent_location_id: Optional[int] = None
+    description: Optional[str] = Field(default=None, max_length=2000)
+    status: Literal["Active", "Inactive"] = "Active"
+
+
+class LocationUpdate(BaseModel):
+    location_name: Optional[str] = Field(default=None, min_length=2, max_length=150)
+    location_code: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=50,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
+    location_type: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    parent_location_id: Optional[int] = None
+    description: Optional[str] = Field(default=None, max_length=2000)
+    status: Optional[Literal["Active", "Inactive"]] = None
+
+
 # ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------
@@ -76,7 +107,7 @@ class UserCreate(BaseModel):
     department: Optional[str] = Field(default=None, max_length=100)
     designation: Optional[str] = Field(default=None, max_length=100)
     password: str = Field(min_length=8, max_length=200)
-    status: str = "Active"
+    status: Literal["Active", "Inactive"] = "Active"
     force_password_change: bool = True
     role_ids: list[int] = Field(default_factory=list)
 
@@ -87,7 +118,7 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=50)
     department: Optional[str] = Field(default=None, max_length=100)
     designation: Optional[str] = Field(default=None, max_length=100)
-    status: Optional[str] = None
+    status: Optional[Literal["Active", "Inactive"]] = None
     force_password_change: Optional[bool] = None
     role_ids: Optional[list[int]] = None
 

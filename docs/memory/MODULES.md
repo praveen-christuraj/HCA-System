@@ -8,46 +8,69 @@
 
 ## 1. Module map
 
-The target module structure (from the owner instructions and OTMS) is:
-
 | Module | Purpose | Status |
 | --- | --- | --- |
 | **Home / Portfolio** | Cross-module KPIs, module status, recent audited activity | **Delivered (v0.1)** |
-| **User Management** | Users, roles, permissions, role-permission assignment, user-role assignment, profile & security | **Foundation delivered**: login, RBAC catalog, admin seeding, user/role/permission APIs, module dashboard, user list, XLSX/CSV import with preview, CSV/XLSX/PDF export. Create/edit dialogs and assignment screens: **In progress** |
-| **Master Data Management** | Locations, asset types, assets, calibration templates, tanks/vessels, company report profiles, operation types | **Planned** (OTMS extraction) |
-| **Business / Operations** | Operation entry, transactions, workflow, tank/vessel operations, export operations, tracking | **Planned** (OTMS extraction) |
-| **Report Modules** | Tank stock ledger, out-turn, material balance, tanker transaction, tracking reports | **Planned** (OTMS extraction) |
-| **Back-up Modules** | Backup settings, backup jobs, restore requests and validation | **Planned** (OTMS extraction) |
-| **Auditing Modules** | Audit trail, security events, UI activity, module audit dashboard | **Delivered (v0.1)**: audit trail with filters, pagination and CSV/XLSX/PDF export; module dashboard. Security-event view and archive/purge: **Planned** |
-| **System / Administration** | Health, seed status, application settings, notifications | **Foundation delivered**: health, seed status. Settings/notifications: **Planned** |
+| **User Management** | User Master, Role Master, standard role permissions, Role Permission, User Role, profile and security | **Core identity and access delivered and verified:** user/role CRUD, imports/exports, permission assignments, user-role assignments, reserved-Admin protections. Profile/security baseline remains available; further security administration is planned. |
+| **Master Data Management** | Location Master, hierarchical locations, Role Location Assignment; later asset types, assets, tanks/vessels, report profiles and operation types | **Location Master and Role Location Assignment delivered and verified:** typed hierarchy, CRUD, import/export and audited assignments. Additional reference masters remain planned. |
+| **Business / Operations** | Operation entry, transactions, workflow, tank/vessel operations, export operations, tracking | **Planned (OTMS extraction)** |
+| **Report Modules** | Tank stock ledger, out-turn, material balance, tanker transaction, tracking reports | **Planned (OTMS extraction)** |
+| **Back-up Modules** | Backup settings, backup jobs, restore requests and validation | **Planned (OTMS extraction)** |
+| **Auditing Modules** | Audit trail, security events, UI activity, module audit dashboard | **Delivered (v0.1):** audit trail with filters, pagination and CSV/XLSX/PDF export; module dashboard. Security-event view and archive/purge remain planned. |
+| **System / Administration** | Health, seed status, application settings, notifications | **Foundation delivered:** health and seed status. Settings/notifications remain planned. |
 
-## 2. What v0.1 actually contains
+## 2. What the current delivery implements
 
-- Backend: FastAPI application, JWT auth (login, refresh, logout, me), TOTP login challenge,
-  password-reset request, account lockout, RBAC catalog + enforcement, typed audit trail with
-  middleware fallback and persisted UI events, users/roles/permissions APIs, user import
-  (XLSX/CSV preview + commit), audit list and three-format export, dashboard summary endpoints,
-  health/seed status.
-- Frontend: mirrored OTMS login page with theme selection, 2FA and reset flows; authenticated
-  shell with top navigation and dropdowns; portfolio dashboard; module dashboards; user list
-  (server pagination, quick + advanced filters, separate date range, CSV/XLSX/PDF export,
-  import dialog); audit trail (server pagination, filters, CSV/XLSX/PDF export); inline 403
-  panel from the permission guard; user menu with theme switcher.
-- Deployment: Docker Compose (PostgreSQL + FastAPI + nginx React), schema creation via
-  `create_all` for v0.1 (Alembic is the next step), automatic idempotent seeding of
-  permissions, the Admin role and the administrator inside the backend container startup.
+### Backend
 
-## 3. Next increments
+- HCA FastAPI + SQLAlchemy application, JWT auth, TOTP login challenge, password-reset request,
+  account lockout, standard RBAC enforcement and typed audit trail with middleware fallback.
+- Idempotent `resource:action` permission catalog provisioning and migration of known legacy
+  permission grants. Assignment mutations use the shared `assignments:write` capability.
+- User Master create/update, soft-deactivation, password reset, user-role changes, import
+  preview/commit and CSV/XLSX/PDF export, with permission-subset and reserved-Admin safeguards.
+- Role Master search/status/date filters, CRUD with soft-deactivation, import/export and standard
+  Role Permission read/replace endpoints.
+- Location Master uses typed location and parent columns, validates parent cycles, supports
+  create/update/soft-deactivation, bounded CSV/XLSX import preview/commit and filtered exports.
+- Role Permission, Role Location and User Role assignment APIs support filtered/paginated lists,
+  CSV/XLSX/PDF exports, audited replacement and bounded CSV/XLSX preview/commit imports. Each
+  assignment import validates the complete file before replacing any row; the reserved Admin
+  role/account cannot be modified through these assignment modules.
+- Shared master import parser caps files at 5,000 data rows. Role permissions accept
+  `role_name,permission_names`; role locations accept `role_name,location_codes`; user roles
+  accept `username,role_names`. Multi-value cells use semicolon-separated standard keys/names.
+- Master Data dashboard KPIs and quick links are live and permission-filtered.
 
-1. User Management CRUD screens and assignment screens; profile & security (password change,
-   2FA enrolment, backup codes).
-2. Alembic migration baseline; replace `create_all`.
-3. Master Data Management extraction from OTMS (locations, asset types, assets) with full
-   import/export, filters and module dashboards.
-4. Audit archive/retention, security-event dashboard.
-5. Business modules, operations and report modules from OTMS, each with dashboard, RBAC,
-   auditing, pagination, filters and imports/exports.
-6. Backup module and restore validation.
-7. Generalise the delivered user import (preview, row errors, XLSX/CSV) into a shared
-   master-data import framework.
-8. Automated browser checks for the login and shell in both themes.
+### Frontend
+
+- Authenticated shell, top permission-filtered navigation, portfolio dashboard, module dashboards
+  and audit trail.
+- User Master create/edit dialogs, password reset, role assignment controls, import preview and
+  audited export.
+- Role Master and Location Master pages with pagination, search/advanced filters, independent
+  date groups, import preview, three-format export, add/edit and soft-deactivation.
+- Role Permission, Role Location and User Role assignment pages with standard permission gating,
+  multi-select controls, server pagination, filters, CSV/XLSX preview-and-confirm import,
+  three-format export and UI audit logging.
+- Navy/white design system with light/dark/system theme support; no new side navigation or
+  non-standard CRUD permissions.
+
+### Deployment and schema
+
+- Docker Compose remains PostgreSQL + FastAPI + nginx-served React; the cloud API deploy remains
+  native Python on Render. SQLAlchemy `create_all` creates new Location/RoleLocation tables at
+  startup; no Alembic baseline has been introduced yet.
+
+## 3. Verification state and remaining work
+
+- Backend: `cd backend && ./.venv/bin/python -m pytest -q` → **26 passed, 1 warning**. Coverage
+  includes the master/assignment APIs, import preview and commit, hierarchy checks, Admin guards,
+  standard permission enforcement and legacy grant migration.
+- Frontend: `cd frontend && npm run build` → **success** (Vite 8.3.4 production build).
+- Dependency install: `cd frontend && npm ci` → **success, 0 reported vulnerabilities**.
+- Manual browser smoke tests, PostgreSQL deployment-schema verification and light/dark visual
+  review of the new pages have **not** been run in this delivery.
+- Profile & Security enhancements, an Alembic migration baseline, asset-type/asset masters,
+  business operations, reports, backup, audit archive/retention and security-event dashboard
+  remain planned.

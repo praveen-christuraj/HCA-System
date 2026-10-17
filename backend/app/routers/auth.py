@@ -422,7 +422,7 @@ def current_user_profile(
 
 @router.get("/security")
 def own_security_settings(
-    user: User = Depends(require_permission("View Own Security Settings")),
+    user: User = Depends(require_permission("profile:read")),
     db: Session = Depends(get_db),
 ):
     return {
@@ -447,7 +447,7 @@ def own_security_settings(
 def change_password(
     payload: ChangePasswordRequest,
     request: Request,
-    user: User = Depends(require_permission("Edit Own Security Settings")),
+    user: User = Depends(require_permission("profile:update")),
     db: Session = Depends(get_db),
 ):
     if not verify_password(payload.current_password, user.password_hash):

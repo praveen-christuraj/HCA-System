@@ -25,7 +25,10 @@ from app.config import (
 )
 from app.models import Permission, Role, RolePermission, User, UserRole
 from app.services.audit_service import create_audit_log
-from app.utils.default_permissions import STANDARD_PERMISSIONS
+from app.utils.default_permissions import (
+    LEGACY_PERMISSION_MIGRATIONS,
+    STANDARD_PERMISSIONS,
+)
 from app.utils.password_policy import password_policy_errors
 from app.utils.security import hash_password
 from app.utils.time import utcnow
@@ -63,10 +66,87 @@ def seed_permission_catalog(db: Session) -> tuple[int, int]:
                 if getattr(permission, field) != entry[field]:
                     setattr(permission, field, entry[field])
                     changed = True
+            if permission.status != "Active":
+                permission.status = "Active"
+                changed = True
             if changed:
                 updated += 1
+    db.flush()
+    _migrate_legacy_permission_grants(db)
+    _deactivate_nonstandard_permission_rows(db)
     db.commit()
     return created, updated
+
+
+def _deactivate_nonstandard_permission_rows(db: Session) -> int:
+    """Keep the active catalog limited to registered resource/action keys."""
+    standard_rows = {
+        (entry["permission_name"], entry["module_name"])
+        for entry in STANDARD_PERMISSIONS
+    }
+    deactivated = 0
+    for permission in db.query(Permission).all():
+        if permission.status == "Active" and (permission.permission_name, permission.module_name) not in standard_rows:
+            permission.status = "Inactive"
+            permission.updated_at = utcnow()
+            deactivated += 1
+    return deactivated
+
+
+def _migrate_legacy_permission_grants(db: Session) -> int:
+    """Translate title-based permissions into standard resource capabilities.
+
+    Existing role grants are preserved before legacy catalog rows are
+    deactivated. This is safe to run on every bootstrap and does not touch
+    administrator-created permissions outside the known legacy names.
+    """
+    target_ids = {
+        permission.permission_name: permission.id
+        for permission in db.query(Permission)
+        .filter(Permission.status == "Active")
+        .all()
+    }
+    legacy_by_name = {
+        name.casefold(): targets
+        for name, targets in LEGACY_PERMISSION_MIGRATIONS.items()
+    }
+    legacy_rows = [
+        permission
+        for permission in db.query(Permission).all()
+        if permission.permission_name.strip().casefold() in legacy_by_name
+    ]
+    if not legacy_rows:
+        return 0
+
+    existing_pairs = {
+        (role_id, permission_id)
+        for role_id, permission_id in db.query(
+            RolePermission.role_id, RolePermission.permission_id
+        ).all()
+    }
+    grants_added = 0
+    for legacy in legacy_rows:
+        target_names = legacy_by_name[legacy.permission_name.strip().casefold()]
+        if str(legacy.status or "").casefold() == "active":
+            holders = [
+                role_id
+                for (role_id,) in db.query(RolePermission.role_id)
+                .filter(RolePermission.permission_id == legacy.id)
+                .all()
+            ]
+            for role_id in holders:
+                for target_name in target_names:
+                    target_id = target_ids.get(target_name)
+                    if target_id is None or (role_id, target_id) in existing_pairs:
+                        continue
+                    db.add(RolePermission(role_id=role_id, permission_id=target_id))
+                    existing_pairs.add((role_id, target_id))
+                    grants_added += 1
+        legacy.status = "Inactive"
+        legacy.updated_at = utcnow()
+
+    db.flush()
+    return grants_added
 
 
 def seed_admin_role(db: Session) -> Role:

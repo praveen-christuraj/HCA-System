@@ -11,9 +11,11 @@ import {
   StatusTag,
 } from '../components/common/Ui'
 import { logUiAction } from '../utils/actionLogger'
+import { usePermissions } from '../hooks/usePermissions'
 
 export default function ModuleDashboard() {
   const { moduleKey } = useParams()
+  const { isAdmin, hasPermission } = usePermissions()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -38,6 +40,12 @@ export default function ModuleDashboard() {
 
   const module = data?.module
   const maxBreakdown = Math.max(1, ...(data?.breakdown || []).map((item) => item.value || 0))
+  const quickLinks = (data?.quick_links || []).filter((link) => {
+    if (isAdmin) return true
+    if (link.permission && !hasPermission(link.permission)) return false
+    if (link.all_permissions && !link.all_permissions.every(hasPermission)) return false
+    return true
+  })
 
   return (
     <div className="page">
@@ -154,7 +162,7 @@ export default function ModuleDashboard() {
                 </section>
               )}
 
-              {data.quick_links?.length > 0 && (
+              {quickLinks.length > 0 && (
                 <section className="card">
                   <div className="card-head">
                     <div>
@@ -164,7 +172,7 @@ export default function ModuleDashboard() {
                   </div>
                   <div className="card-body">
                     <div className="quick-links">
-                      {data.quick_links.map((link) => (
+                      {quickLinks.map((link) => (
                         <Link key={link.path} to={link.path} className="quick-link">
                           <span>{link.label}</span>
                           <Icon name="chevronRight" size={15} />

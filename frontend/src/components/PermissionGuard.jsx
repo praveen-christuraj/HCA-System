@@ -9,12 +9,16 @@ import { userHasPermission } from '../hooks/usePermissions'
 export default function PermissionGuard({
   loggedInUser,
   requiredPermission,
+  allOfPermissions,
   anyOfPermissions,
   children,
   fallbackTitle = 'Access denied',
   fallbackMessage = 'You do not have permission to access this page.',
 }) {
-  const permissionList = requiredPermission ? [requiredPermission] : []
+  const permissionList = [
+    ...(requiredPermission ? [requiredPermission] : []),
+    ...(Array.isArray(allOfPermissions) ? allOfPermissions.filter(Boolean) : []),
+  ]
   const anyList = Array.isArray(anyOfPermissions) ? anyOfPermissions.filter(Boolean) : []
 
   const hasAll = permissionList.every((name) => userHasPermission(loggedInUser, name))

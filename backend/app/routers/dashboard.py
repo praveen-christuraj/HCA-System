@@ -15,7 +15,7 @@ from app.dependencies.permissions import (
     require_permission,
     user_has_permission,
 )
-from app.models import AuditLog, PasswordResetRequest, Permission, Role, User
+from app.models import AuditLog, Location, PasswordResetRequest, Permission, Role, RoleLocation, User
 from app.services.serializers import audit_to_dict, user_to_dict
 from app.utils.time import utcnow
 
@@ -29,11 +29,19 @@ USER_MODULES = (
     "User Role Assignment",
     "Profile & Security",
     "Authentication",
+    "Location Master",
+    "Role Location Assignment",
 )
 
 MODULE_PERMISSIONS = {
-    "user-management": "View User Management Dashboard",
-    "auditing": "View Auditing Dashboard",
+    "user-management": "users:read",
+    "master-data": "locations:read",
+    "business": "dashboard:read",
+    "reports": "dashboard:read",
+    "backup": "dashboard:read",
+    "auditing": "audit:read",
+    "system": "system:read",
+    "profile": "profile:read",
 }
 
 
@@ -51,18 +59,21 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
     audit_today = (
         db.query(func.count(AuditLog.id)).filter(AuditLog.created_at >= today_start).scalar() or 0
     )
+    location_total = db.query(func.count(Location.id)).scalar() or 0
+    location_active = db.query(func.count(Location.id)).filter(Location.status == "Active").scalar() or 0
+    role_location_total = db.query(func.count(RoleLocation.id)).scalar() or 0
 
     return [
         {
             "key": "user-management",
             "name": "User Management",
-            "status": "Foundation",
+            "status": "Available",
             "description": (
-                "Users, roles, permissions and access control. User list is available; "
-                "assignment screens are in the next increment."
+                "User Master, Role Master, standard permission assignment, user-role assignment, "
+                "password administration and audited access control."
             ),
             "path": "/modules/user-management",
-            "permission": "View User Management Dashboard",
+            "permission": "users:read",
             "metrics": [
                 {"label": "Users", "value": user_total},
                 {"label": "Active users", "value": user_active},
@@ -73,14 +84,18 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
         {
             "key": "master-data",
             "name": "Master Data Management",
-            "status": "Planned",
+            "status": "Foundation",
             "description": (
-                "Locations, asset types, assets, calibration templates and reference data, "
-                "extracted from OTMS with import/export and module dashboard."
+                "Location Master and role-based location access are available; additional "
+                "operational reference data will be delivered in later increments."
             ),
             "path": "/modules/master-data",
-            "permission": "View System Dashboard",
-            "metrics": [],
+            "permission": "locations:read",
+            "metrics": [
+                {"label": "Locations", "value": location_total},
+                {"label": "Active locations", "value": location_active},
+                {"label": "Role assignments", "value": role_location_total},
+            ],
         },
         {
             "key": "business",
@@ -91,7 +106,7 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 "export operations and movement tracking."
             ),
             "path": "/modules/business",
-            "permission": "View System Dashboard",
+            "permission": "dashboard:read",
             "metrics": [],
         },
         {
@@ -103,7 +118,7 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 "tracking reports with print-grade PDF output."
             ),
             "path": "/modules/reports",
-            "permission": "View System Dashboard",
+            "permission": "dashboard:read",
             "metrics": [],
         },
         {
@@ -115,7 +130,7 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 "with full auditing."
             ),
             "path": "/modules/backup",
-            "permission": "View System Dashboard",
+            "permission": "dashboard:read",
             "metrics": [],
         },
         {
@@ -127,7 +142,7 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 "activity reporting."
             ),
             "path": "/modules/auditing",
-            "permission": "View Auditing Dashboard",
+            "permission": "audit:read",
             "metrics": [
                 {"label": "Audit events", "value": audit_total},
                 {"label": "Today", "value": audit_today},
@@ -142,7 +157,7 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 "notifications are planned."
             ),
             "path": "/modules/system",
-            "permission": "View System Health",
+            "permission": "system:read",
             "metrics": [],
         },
         {
@@ -154,7 +169,7 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 "activity."
             ),
             "path": "/modules/profile",
-            "permission": "View Own Security Settings",
+            "permission": "profile:read",
             "metrics": [],
         },
     ]
@@ -162,7 +177,7 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
 
 @router.get("/summary")
 def portfolio_summary(
-    user: User = Depends(require_permission("View System Dashboard")),
+    user: User = Depends(require_permission("dashboard:read")),
     db: Session = Depends(get_db),
 ):
     now = utcnow()
@@ -242,7 +257,7 @@ def portfolio_summary(
 
 
 def _require_module_access(db: Session, user: User, module_key: str) -> str:
-    required = MODULE_PERMISSIONS.get(module_key, "View System Dashboard")
+    required = MODULE_PERMISSIONS.get(module_key, "dashboard:read")
     if not is_admin_user(user, db) and not user_has_permission(db, user, required):
         raise HTTPException(status_code=403, detail=f"Permission required: {required}")
     return required
@@ -305,10 +320,51 @@ def module_dashboard(
             for status, count in status_rows
         ]
         quick_links = [
-            {"label": "User Master", "path": "/users", "permission": "View User"},
-            {"label": "Audit Trail", "path": "/audit", "permission": "View Audit Log"},
+            {"label": "User Master", "path": "/users", "permission": "users:read"},
+            {"label": "Role Master", "path": "/roles", "permission": "roles:read"},
+            {
+                "label": "Role Permission Assignment",
+                "path": "/role-permissions",
+                "all_permissions": ["roles:read", "permissions:read"],
+            },
+            {
+                "label": "User Role Assignment",
+                "path": "/user-roles",
+                "all_permissions": ["users:read", "roles:read"],
+            },
+            {"label": "Audit Trail", "path": "/audit", "permission": "audit:read"},
         ]
         activity_query = db.query(AuditLog).filter(AuditLog.module_name.in_(USER_MODULES))
+    elif module_key == "master-data":
+        location_total = db.query(func.count(Location.id)).scalar() or 0
+        location_active = db.query(func.count(Location.id)).filter(Location.status == "Active").scalar() or 0
+        location_inactive = db.query(func.count(Location.id)).filter(Location.status != "Active").scalar() or 0
+        role_location_total = db.query(func.count(RoleLocation.id)).scalar() or 0
+        kpis = [
+            {"label": "Total locations", "value": location_total, "context": "Configured master data"},
+            {"label": "Active locations", "value": location_active, "context": "Available for assignment"},
+            {"label": "Inactive locations", "value": location_inactive, "context": "Retained for history"},
+            {"label": "Role assignments", "value": role_location_total, "context": "Role-to-location links"},
+        ]
+        type_rows = (
+            db.query(Location.location_type, func.count(Location.id))
+            .group_by(Location.location_type)
+            .order_by(func.count(Location.id).desc(), Location.location_type.asc())
+            .limit(8)
+            .all()
+        )
+        breakdown = [{"label": location_type, "value": count, "tone": "info"} for location_type, count in type_rows]
+        quick_links = [
+            {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
+            {
+                "label": "Role Location Assignment",
+                "path": "/role-locations",
+                "all_permissions": ["roles:read", "locations:read"],
+            },
+        ]
+        activity_query = db.query(AuditLog).filter(
+            AuditLog.module_name.in_(("Location Master", "Role Location Assignment"))
+        )
     elif module_key == "auditing":
         audit_total = db.query(func.count(AuditLog.id)).scalar() or 0
         audit_today = (
@@ -349,8 +405,8 @@ def module_dashboard(
             for category, count in category_rows
         ]
         quick_links = [
-            {"label": "Audit Trail", "path": "/audit", "permission": "View Audit Log"},
-            {"label": "Home", "path": "/", "permission": "View System Dashboard"},
+            {"label": "Audit Trail", "path": "/audit", "permission": "audit:read"},
+            {"label": "Home", "path": "/", "permission": "dashboard:read"},
         ]
         activity_query = db.query(AuditLog)
     elif module_key == "system":
@@ -364,7 +420,7 @@ def module_dashboard(
             {"label": "Permissions", "value": permissions_total, "context": "Seeded catalog"},
             {"label": "Audit events", "value": audit_total, "context": "Append-only"},
         ]
-        quick_links = [{"label": "Audit Trail", "path": "/audit", "permission": "View Audit Log"}]
+        quick_links = [{"label": "Audit Trail", "path": "/audit", "permission": "audit:read"}]
         activity_query = db.query(AuditLog).filter(AuditLog.module_name == "System Administration")
     else:
         activity_query = db.query(AuditLog).filter(AuditLog.module_name.ilike(f"%{module['name']}%"))

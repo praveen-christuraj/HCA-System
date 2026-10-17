@@ -20,7 +20,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import ALLOWED_ORIGINS, APP_NAME, APP_VERSION, BOOTSTRAP_ADMIN_ON_STARTUP
 from app.database import SessionLocal, init_db
 from app.middleware import AuditMiddleware, SecurityHeadersMiddleware
-from app.routers import audit_logs, auth, dashboard, permissions, roles, system, users
+from app.routers import (
+    audit_logs,
+    auth,
+    dashboard,
+    locations,
+    permissions,
+    role_locations,
+    roles,
+    system,
+    user_roles,
+    users,
+)
 from app.services.bootstrap import bootstrap_identity
 
 logger = logging.getLogger("hca")
@@ -79,6 +90,9 @@ app.include_router(system.router, prefix=API_PREFIX)
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(roles.router, prefix=API_PREFIX)
+app.include_router(locations.router, prefix=API_PREFIX)
+app.include_router(role_locations.router, prefix=API_PREFIX)
+app.include_router(user_roles.router, prefix=API_PREFIX)
 app.include_router(permissions.router, prefix=API_PREFIX)
 app.include_router(audit_logs.router, prefix=API_PREFIX)
 app.include_router(dashboard.router, prefix=API_PREFIX)

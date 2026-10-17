@@ -29,8 +29,9 @@ export default function TopNavigation() {
   const hasRequiredPermissions = useCallback(
     (item) => {
       if (isAdmin) return true
-      if (item.permission) return hasPermission(item.permission)
-      if (item.anyPermission) return item.anyPermission.some(hasPermission)
+      if (item.permission && !hasPermission(item.permission)) return false
+      if (item.anyPermission && !item.anyPermission.some(hasPermission)) return false
+      if (item.allPermissions && !item.allPermissions.every(hasPermission)) return false
       return true
     },
     [isAdmin, hasPermission],

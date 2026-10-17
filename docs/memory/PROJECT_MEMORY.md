@@ -174,11 +174,26 @@ imports, exports, admin screens and everything added later. Code review must rej
   through roles and permissions. There is no "open" page.
 - The frontend hides or disables actions the user cannot perform; the **API is the
   authorization authority** and re-checks every request. Never rely on hidden buttons alone.
-- Permission names follow the catalog convention `View|Create|Edit|Delete <Entity>` plus
-  named workflow actions. The catalog is the single source of truth for seeding and UI gating.
+- **Only standard `resource:action` permissions may be used for application pages.** Use the
+  standard actions `read`, `create`, `update` and `delete`; cross-page role/user/location
+  assignment writes use the shared `assignments:write` capability. Do not create page-specific
+  names such as `View User`, `Export Role` or `Edit Location`.
+- Every new page/module must be registered in
+  `backend/app/utils/default_permissions.py` under `RESOURCE_PERMISSION_DEFINITIONS` before
+  its route/UI is added. Bootstrap automatically creates and refreshes those permissions
+  idempotently; no manual permission seed is allowed. The same catalog drives API enforcement,
+  permission assignment UI and frontend route/action gating.
+- Read/list/detail/export use `<resource>:read`; create/import use `<resource>:create`; edits
+  and soft-deactivation use `<resource>:update` (or `<resource>:delete` only for a true
+  delete capability). Assignment pages read with the relevant standard resource permissions
+  and write with `assignments:write`.
+- Register dashboards, profile/security, audit, security-event and system-health views as
+  standard resource capabilities too. During bootstrap, migrate known legacy title-based grants
+  to the corresponding standard keys before deactivating the old rows; no named page permissions
+  remain in the active catalog.
 - Every page, action and export is auditable by default (Rule 1).
 - The reserved **Admin** role holds the full catalog and cannot be locked out by configuration.
-- The administrator can grant/revoke any permission per role; permission changes are audited.
+- The administrator can grant/revoke any standard permission per role; permission changes are audited.
 
 ### Rule 12 — Document every change in Markdown under `docs/`
 

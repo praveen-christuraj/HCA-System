@@ -107,6 +107,11 @@ class Role(Base):
         secondary="role_permissions",
         back_populates="roles",
     )
+    location_assignments = relationship(
+        "RoleLocation",
+        back_populates="role",
+        cascade="all, delete-orphan",
+    )
 
 
 class Permission(Base):
@@ -180,6 +185,67 @@ class UserRole(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "role_id", name="unique_user_role_pair"),
+    )
+
+
+class Location(Base):
+    """Soft-coded operational location and optional hierarchy node."""
+
+    __tablename__ = "locations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_name = Column(String(150), nullable=False, index=True)
+    location_code = Column(String(50), nullable=False, unique=True, index=True)
+    location_type = Column(String(100), nullable=False, index=True)
+    parent_location_id = Column(
+        Integer,
+        ForeignKey("locations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    description = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    parent_location = relationship(
+        "Location",
+        remote_side=[id],
+        back_populates="children",
+    )
+    children = relationship("Location", back_populates="parent_location")
+    role_assignments = relationship(
+        "RoleLocation",
+        back_populates="location",
+        cascade="all, delete-orphan",
+    )
+
+
+class RoleLocation(Base):
+    """Typed role-to-location assignment child table."""
+
+    __tablename__ = "role_locations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    role_id = Column(
+        Integer,
+        ForeignKey("roles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    location_id = Column(
+        Integer,
+        ForeignKey("locations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    role = relationship("Role", back_populates="location_assignments")
+    location = relationship("Location", back_populates="role_assignments")
+
+    __table_args__ = (
+        UniqueConstraint("role_id", "location_id", name="unique_role_location"),
     )
 
 
