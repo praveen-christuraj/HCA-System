@@ -275,3 +275,59 @@ class VolumeLookupBatchRequest(BaseModel):
     dip_unit: Optional[Literal["cm", "mm", "m"]] = None
     volume_unit: Optional[Literal["l", "kl", "bbl"]] = None
     allow_clamping: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Master Data: Prime Mover-Tanker Link
+# ---------------------------------------------------------------------------
+class PrimeMoverTankerLinkCreate(BaseModel):
+    prime_mover_asset_id: int = Field(ge=1)
+    tanker_asset_id: int = Field(ge=1)
+    linked_from: date
+    linked_to: Optional[date] = None
+    remarks: Optional[str] = Field(default=None, max_length=2000)
+    status: Literal["Active", "Inactive"] = "Active"
+
+
+class PrimeMoverTankerLinkUpdate(BaseModel):
+    prime_mover_asset_id: Optional[int] = Field(default=None, ge=1)
+    tanker_asset_id: Optional[int] = Field(default=None, ge=1)
+    linked_from: Optional[date] = None
+    linked_to: Optional[date] = None
+    remarks: Optional[str] = Field(default=None, max_length=2000)
+    status: Optional[Literal["Active", "Inactive"]] = None
+
+
+class PrimeMoverTankerLinkClose(BaseModel):
+    linked_to: Optional[date] = None
+    remarks: Optional[str] = Field(default=None, max_length=2000)
+
+
+# ---------------------------------------------------------------------------
+# Configurations: Operation Master
+# ---------------------------------------------------------------------------
+class OperationCreate(BaseModel):
+    location_id: int = Field(ge=1)
+    operation_type_code: str = Field(min_length=1, max_length=40)
+    operation_category: str = Field(min_length=1, max_length=40)
+    operation_code: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9._-]+$")
+    operation_label: str = Field(min_length=2, max_length=150)
+    sort_order: int = Field(default=0, ge=0, le=100000)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    status: Literal["Active", "Inactive"] = "Active"
+
+
+class OperationUpdate(BaseModel):
+    location_id: Optional[int] = Field(default=None, ge=1)
+    operation_type_code: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    operation_category: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    operation_code: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=40,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
+    operation_label: Optional[str] = Field(default=None, min_length=2, max_length=150)
+    sort_order: Optional[int] = Field(default=None, ge=0, le=100000)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    status: Optional[Literal["Active", "Inactive"]] = None

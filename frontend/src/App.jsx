@@ -13,6 +13,9 @@ import PermissionPresets from './pages/PermissionPresets'
 import AssetCalibration from './pages/AssetCalibration'
 import Assets from './pages/Assets'
 import Locations from './pages/Locations'
+import OperationMaster from './pages/OperationMaster'
+import OperationTypes from './pages/OperationTypes'
+import PrimeMoverTankerLinkMaster from './pages/PrimeMoverTankerLinkMaster'
 import RoleLocations from './pages/RoleLocations'
 import RolePermissions from './pages/RolePermissions'
 import Roles from './pages/Roles'
@@ -152,6 +155,30 @@ function App() {
               element={
                 <PermissionGuard loggedInUser={loggedInUser} requiredPermission="assets:read">
                   <AssetCalibration />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/prime-mover-tanker-links"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="prime_mover_tanker_links:read">
+                  <PrimeMoverTankerLinkMaster />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/operation-types"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_types:read">
+                  <OperationTypes />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/operations"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="operations:read">
+                  <OperationMaster />
                 </PermissionGuard>
               }
             />

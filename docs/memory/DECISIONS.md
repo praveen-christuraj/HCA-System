@@ -314,3 +314,44 @@ shaped, `DELETE` deactivates by default; a permanent delete (which frees a cap s
 while `times_applied` is zero. The cap keeps the list a curated set of templates rather than a
 shadow permission table, and the remaining-slot count is returned with every list response so the
 UI can say "18 of 20 free" instead of failing silently.
+
+---
+
+## ADR-019 — Operation types and stock signs are hard coded; the Operation Master is location-scoped
+**Date:** 2026-10-17 · **Status:** Accepted
+
+**Context.** OTMS keeps operation types in an editable `operation_types` table, and its tank and
+vessel operations carry a free-text category. An installation could rename or delete a type that
+the stock logic depends on, and the same category could mean different things in different places.
+The owner asked for Configurations to hold the operation types and their categories as fixed
+catalogue data that feeds the Operation Entry dropdowns later, and for the Prime Mover-Tanker Link
+module to sit under Master Data.
+
+**Decision.**
+1. Operation types are a closed catalogue in `backend/app/utils/operation_types.py`, the same
+   pattern as the asset types (ADR-014). Each type is bound to exactly one asset type: Tank
+   Operations → Storage Tank, Barge Operations → Barge, Shuttle Operations → Shuttle, FSO
+   Operations → FSO, Tanker Operations → Tanker Trailer, Flowmeter Operations → Flowmeter. A Prime
+   Mover has no operation of its own; it connects to a tanker trailer through the link.
+2. Operation categories are a fixed list with one stock sign each: OPENING STOCK=SET, RECEIPT=IN,
+   DISPATCH=OUT, EXPORT=OUT, CLOSING STOCK=SET, DRAINING=OUT, DECANTING=OUT, ITT=NEUTRAL.
+   `SET` overrides the stock balance, `IN` adds, `OUT` subtracts, and `NEUTRAL` is accounted in the
+   register but does not override the stock. The sign is derived from the category on every write
+   and is never accepted from the client.
+3. The Operation Master stores operations per location (`operations`: location, type code,
+   category, derived sign, code, label, sort order, description, status). A code and a name are
+   unique per (location, operation type), ignoring case and extra spaces, and the check covers
+   every status, so a deactivated code stays reserved. An Active operation requires an Active
+   location. Deactivation keeps the row; there is no delete route. Import is create-only.
+4. The Prime Mover-Tanker Link (OTMS module) is ported under Master Data. Its assets are the two
+   fixed asset types `PRIME_MOVER` and `TANKER_TRAILER`, referenced by foreign key. Only one Active
+   link is allowed per prime mover and per tanker. Close is an update action that sets the end
+   date and appends remarks. Delete is permanent, because a link is an operational pairing, not a
+   document of record.
+
+**Consequences.** The stock logic cannot be changed by configuration, and the sign of every
+operation is consistent across locations. Operation Entry can read the catalogue and the active
+operations without a join to any editable table. The category list is global: every operation type
+may use every category. Restricting categories per type is an open question for the owner. The
+OTMS Tracking Module Configuration, which maps operation types to BARGE/TANKER tracking, is not part
+of this delivery.

@@ -22,16 +22,19 @@ from app.models import (
     AssetTank,
     AuditLog,
     Location,
+    Operation,
     PasswordResetRequest,
     Permission,
     PermissionPreset,
+    PrimeMoverTankerLink,
     Role,
     RoleLocation,
     User,
 )
 from app.config import MAX_PERMISSION_PRESETS
 from app.services.serializers import audit_to_dict, user_to_dict
-from app.utils.asset_types import asset_type_catalog
+from app.utils.asset_types import PRIME_MOVER, TANKER_TRAILER, asset_type_catalog
+from app.utils.operation_types import OPERATION_CATEGORY_CODES, operation_type_catalog
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -52,11 +55,18 @@ USER_MODULES = (
 MASTER_DATA_MODULES = (
     "Asset Master",
     "Asset Calibration",
+    "Prime Mover-Tanker Link",
+)
+
+CONFIGURATION_MODULES = (
+    "Operation Types",
+    "Operation Master",
 )
 
 MODULE_PERMISSIONS = {
     "user-management": "users:read",
     "master-data": "assets:read",
+    "configurations": "operation_types:read",
     "business": "dashboard:read",
     "reports": "dashboard:read",
     "backup": "dashboard:read",
@@ -94,6 +104,15 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
     asset_active = db.query(func.count(Asset.id)).filter(Asset.status == "Active").scalar() or 0
     tank_total = db.query(func.count(AssetTank.id)).scalar() or 0
     chart_total = db.query(func.count(AssetCalibrationTable.id)).scalar() or 0
+    active_links = (
+        db.query(func.count(PrimeMoverTankerLink.id))
+        .filter(PrimeMoverTankerLink.status == "Active")
+        .scalar()
+        or 0
+    )
+    active_operations = (
+        db.query(func.count(Operation.id)).filter(Operation.status == "Active").scalar() or 0
+    )
 
     return [
         {
@@ -119,7 +138,8 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
             "status": "Available",
             "description": (
                 "Asset Master over the seven fixed hydrocarbon asset types, with tanks declared "
-                "per asset and calibration charts stored in canonical cm and bbl."
+                "per asset, calibration charts in canonical cm and bbl, and the prime mover to "
+                "tanker trailer link register."
             ),
             "path": "/modules/master-data",
             "permission": "assets:read",
@@ -127,7 +147,24 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 {"label": "Assets", "value": asset_total},
                 {"label": "Active assets", "value": asset_active},
                 {"label": "Tanks", "value": tank_total},
-                {"label": "Calibration charts", "value": chart_total},
+                {"label": "Active links", "value": active_links},
+            ],
+        },
+        {
+            "key": "configurations",
+            "name": "Configurations",
+            "status": "Available",
+            "description": (
+                "Fixed operation types mapped to asset types, the fixed operation categories "
+                "and their stock signs, and the location-scoped Operation Master that feeds "
+                "Operation Entry."
+            ),
+            "path": "/modules/configurations",
+            "permission": "operation_types:read",
+            "metrics": [
+                {"label": "Operation types", "value": len(operation_type_catalog())},
+                {"label": "Categories", "value": len(OPERATION_CATEGORY_CODES)},
+                {"label": "Active operations", "value": active_operations},
             ],
         },
         {
@@ -441,12 +478,117 @@ def module_dashboard(
             }
             for definition in asset_type_catalog()
         ]
+        prime_mover_active_assets = (
+            db.query(func.count(Asset.id))
+            .filter(Asset.asset_type_code == PRIME_MOVER, Asset.status == "Active")
+            .scalar()
+            or 0
+        )
+        tanker_active_assets = (
+            db.query(func.count(Asset.id))
+            .filter(Asset.asset_type_code == TANKER_TRAILER, Asset.status == "Active")
+            .scalar()
+            or 0
+        )
+        linked_prime_movers = (
+            db.query(func.count(func.distinct(PrimeMoverTankerLink.prime_mover_asset_id)))
+            .filter(PrimeMoverTankerLink.status == "Active")
+            .scalar()
+            or 0
+        )
+        linked_tankers = (
+            db.query(func.count(func.distinct(PrimeMoverTankerLink.tanker_asset_id)))
+            .filter(PrimeMoverTankerLink.status == "Active")
+            .scalar()
+            or 0
+        )
+        link_total = db.query(func.count(PrimeMoverTankerLink.id)).scalar() or 0
+        active_links = (
+            db.query(func.count(PrimeMoverTankerLink.id))
+            .filter(PrimeMoverTankerLink.status == "Active")
+            .scalar()
+            or 0
+        )
+        kpis.extend(
+            [
+                {
+                    "label": "Active prime mover links",
+                    "value": active_links,
+                    "context": f"{link_total} links recorded",
+                },
+                {
+                    "label": "Prime movers without a link",
+                    "value": max(prime_mover_active_assets - linked_prime_movers, 0),
+                    "context": f"{prime_mover_active_assets} active prime movers",
+                },
+                {
+                    "label": "Tankers without a link",
+                    "value": max(tanker_active_assets - linked_tankers, 0),
+                    "context": f"{tanker_active_assets} active tanker trailers",
+                },
+            ]
+        )
         quick_links = [
             {"label": "Asset Master", "path": "/assets", "permission": "assets:read"},
+            {
+                "label": "Prime Mover-Tanker Link",
+                "path": "/prime-mover-tanker-links",
+                "permission": "prime_mover_tanker_links:read",
+            },
             {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
         ]
         activity_query = db.query(AuditLog).filter(
             AuditLog.module_name.in_(MASTER_DATA_MODULES)
+        )
+    elif module_key == "configurations":
+        type_total = len(operation_type_catalog())
+        category_total = len(OPERATION_CATEGORY_CODES)
+        operation_total = db.query(func.count(Operation.id)).scalar() or 0
+        active_operations = (
+            db.query(func.count(Operation.id)).filter(Operation.status == "Active").scalar() or 0
+        )
+        operation_inactive = operation_total - active_operations
+        locations_with_operations = (
+            db.query(func.count(func.distinct(Operation.location_id))).scalar() or 0
+        )
+        kpis = [
+            {"label": "Operation types", "value": type_total, "context": "Fixed catalogue"},
+            {"label": "Categories", "value": category_total, "context": "Each with a stock sign"},
+            {
+                "label": "Active operations",
+                "value": active_operations,
+                "context": f"{operation_inactive} inactive",
+            },
+            {
+                "label": "Locations configured",
+                "value": locations_with_operations,
+                "context": "Locations with at least one operation",
+            },
+        ]
+        type_rows = dict(
+            db.query(Operation.operation_type_code, func.count(Operation.id))
+            .group_by(Operation.operation_type_code)
+            .all()
+        )
+        breakdown = [
+            {
+                "label": definition["name"],
+                "value": type_rows.get(definition["code"], 0),
+                "tone": "info" if type_rows.get(definition["code"], 0) else "neutral",
+            }
+            for definition in operation_type_catalog()
+        ]
+        quick_links = [
+            {
+                "label": "Operation Types",
+                "path": "/operation-types",
+                "permission": "operation_types:read",
+            },
+            {"label": "Operation Master", "path": "/operations", "permission": "operations:read"},
+            {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
+        ]
+        activity_query = db.query(AuditLog).filter(
+            AuditLog.module_name.in_(CONFIGURATION_MODULES)
         )
     elif module_key == "auditing":
         audit_total = db.query(func.count(AuditLog.id)).scalar() or 0

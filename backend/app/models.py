@@ -589,3 +589,106 @@ class AssetCalibrationRow(Base):
             name="unique_calibration_point_per_tank",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Master Data: Prime Mover-Tanker Link
+# ---------------------------------------------------------------------------
+class PrimeMoverTankerLink(Base):
+    """Which tanker trailer a prime mover is hauling, and for which dates.
+
+    Both sides are references to the asset register (ids, not text codes), so a
+    renamed asset keeps its links. The link is validated against the exact
+    hard-coded asset types (PRIME_MOVER, TANKER_TRAILER). At most one link per
+    prime mover and at most one per tanker may be ``Active`` at a time; closing
+    a link sets its end date and makes it ``Inactive``.
+    """
+
+    __tablename__ = "prime_mover_tanker_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    prime_mover_asset_id = Column(
+        Integer,
+        ForeignKey("assets.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    tanker_asset_id = Column(
+        Integer,
+        ForeignKey("assets.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    linked_from = Column(Date, nullable=False, index=True)
+    linked_to = Column(Date, nullable=True, index=True)
+    remarks = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+
+    created_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    updated_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    prime_mover_asset = relationship("Asset", foreign_keys=[prime_mover_asset_id])
+    tanker_asset = relationship("Asset", foreign_keys=[tanker_asset_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by = relationship("User", foreign_keys=[updated_by_user_id])
+
+
+# ---------------------------------------------------------------------------
+# Configurations: Operation Master (location-scoped operations)
+# ---------------------------------------------------------------------------
+class Operation(Base):
+    """A named operation a location performs, under a fixed type and category.
+
+    The operation type and category come from the hard-coded catalogue in
+    ``app.utils.operation_types``. ``operation_sign`` is written from the
+    category on every save, so the stored sign can never disagree with the
+    category. Operation Entry reads these rows to fill its dropdowns.
+    """
+
+    __tablename__ = "operations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_id = Column(
+        Integer,
+        ForeignKey("locations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    operation_type_code = Column(String(40), nullable=False, index=True)
+    operation_category = Column(String(40), nullable=False, index=True)
+    operation_sign = Column(String(10), nullable=False)
+    operation_code = Column(String(40), nullable=False, index=True)
+    operation_label = Column(String(150), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    description = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    location = relationship("Location")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "location_id",
+            "operation_type_code",
+            "operation_code",
+            name="uq_operation_location_type_code",
+        ),
+        UniqueConstraint(
+            "location_id",
+            "operation_type_code",
+            "operation_label",
+            name="uq_operation_location_type_label",
+        ),
+    )

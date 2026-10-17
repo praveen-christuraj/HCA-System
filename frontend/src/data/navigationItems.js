@@ -59,6 +59,25 @@ export const navigationItems = [
       },
       { label: 'Asset Master', path: '/assets', permission: 'assets:read' },
       { label: 'Asset Calibration', path: '/asset-calibration', permission: 'assets:read' },
+      {
+        // Prime movers and the tanker trailers they pull, with one Active link each.
+        label: 'Prime Mover-Tanker Link',
+        path: '/prime-mover-tanker-links',
+        permission: 'prime_mover_tanker_links:read',
+      },
+    ],
+  },
+  {
+    label: 'Configurations',
+    type: 'dropdown',
+    items: [
+      {
+        label: 'Module Dashboard',
+        path: '/modules/configurations',
+        permission: 'operation_types:read',
+      },
+      { label: 'Operation Types', path: '/operation-types', permission: 'operation_types:read' },
+      { label: 'Operation Master', path: '/operations', permission: 'operations:read' },
     ],
   },
   {
@@ -113,6 +132,9 @@ export const hiddenRouteLabels = {
   '/user-roles': 'User Role Assignment',
   '/assets': 'Asset Master',
   '/asset-calibration': 'Asset Calibration',
+  '/prime-mover-tanker-links': 'Prime Mover-Tanker Link',
+  '/operation-types': 'Operation Types',
+  '/operations': 'Operation Master',
   '/audit': 'Audit Trail',
 }
 

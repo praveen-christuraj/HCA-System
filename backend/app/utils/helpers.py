@@ -59,3 +59,19 @@ def format_datetime(value: datetime | None) -> str:
     if value is None:
         return ""
     return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+_IMPORT_DATE_PATTERNS = ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d")
+
+
+def parse_import_date(value) -> date | None:
+    """Parse a spreadsheet date cell. Blank or unrecognised text returns None."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for pattern in _IMPORT_DATE_PATTERNS:
+        try:
+            return datetime.strptime(text, pattern).date()
+        except ValueError:
+            continue
+    return None

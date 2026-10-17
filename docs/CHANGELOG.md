@@ -5,6 +5,29 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-17 — Prime Mover-Tanker Link (Master Data) and Configurations module
+
+**Note:** [`changes/2026-10-17-prime-mover-link-and-configurations.md`](changes/2026-10-17-prime-mover-link-and-configurations.md)
+
+| Area | Delivered |
+| --- | --- |
+| Prime Mover-Tanker Link | Imported from OTMS under Master Data. Pairs a `PRIME_MOVER` asset with a `TANKER_TRAILER` asset by foreign key, with one Active link per prime mover and per tanker. List with status, asset and linked-from filters, options with chassis numbers, current-link lookups, create, edit, close (sets the end date and appends remarks), permanent delete, CSV/XLSX/PDF export and import preview-then-commit. Live warning in the dialog when an asset already has another Active link. |
+| Configurations | New top-level module next to Master Data. Operation types are hard coded (ADR-019): Tank, Barge, Shuttle, FSO, Tanker (→ Tanker Trailer) and Flowmeter Operations. Eight categories carry fixed stock signs: OPENING STOCK and CLOSING STOCK = SET, RECEIPT = IN, DISPATCH, EXPORT, DRAINING and DECANTING = OUT, ITT = NEUTRAL. |
+| Operation Master | Location-scoped operations of those fixed types. The sign is derived from the category on every write. Code and name are unique per location and type, case-insensitively, across all statuses. Active operations need an Active location. Deactivation keeps the record. Import is create-only. CSV/XLSX/PDF export, filters, a created-date group, pagination and audit. Feeds Operation Entry later. |
+| RBAC / audit | New standard resources `prime_mover_tanker_links` (read/create/update/delete), `operation_types` (read) and `operations` (read/create/update/delete), registered in `RESOURCE_PERMISSION_DEFINITIONS` (catalog 30 → 39). Every mutation, import and export is audited, and the middleware maps the new prefixes. |
+| UI | Prime Mover-Tanker Link page under Master Data. Configurations group in top navigation (Module Dashboard, Operation Types, Operation Master). Shared `ConfirmDialog` extracted from Permission Presets. |
+| Dashboards | Master Data gains active-link KPIs and a link quick link. Configurations has a live module dashboard. |
+| Project memory | ADR-019 records the hard-coded catalogue, the derived sign and the location scope. MODULES.md and this changelog are updated. |
+
+**Verification**
+
+- `cd backend && python -m pytest -q` → `116 passed, 1 warning` (80 pre-existing + 18 link tests + 18 Configurations tests).
+- `cd frontend && npm run build` → success (Vite 8.3.4, 74 modules; main chunk 515 kB, above the 500 kB warning).
+- Headless Chromium against the live backend: Prime Mover-Tanker Link (light), Operation Master, Operation Types and Configurations dashboard (dark). No console or page errors.
+- Not verified in a browser: dialogs, the live conflict warning and light theme of the Configurations pages.
+
+**Scope exclusions:** OTMS Tracking Module Configuration; Operation Entry (waits for owner confirmation).
+
 ## 2026-10-17 — Permission Presets: named, reusable permission sets for roles
 
 **Note:** [`changes/2026-10-17-permission-presets.md`](changes/2026-10-17-permission-presets.md)

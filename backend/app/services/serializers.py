@@ -9,12 +9,15 @@ from app.models import (
     AssetTank,
     AuditLog,
     Location,
+    Operation,
     Permission,
     PermissionPreset,
+    PrimeMoverTankerLink,
     Role,
     User,
 )
 from app.utils.asset_types import get_asset_type
+from app.utils.operation_types import get_operation_category, get_operation_type
 from app.utils.units import DIP_UNIT_LABELS, VOLUME_UNIT_LABELS
 
 
@@ -265,3 +268,70 @@ def calibration_table_to_dict(
         payload["rows"] = [calibration_row_to_dict(row) for row in selected]
         payload["rows_returned"] = len(selected)
     return payload
+
+
+def _asset_type_name(code: str) -> str:
+    return (get_asset_type(code) or {}).get("name", code or "")
+
+
+def prime_mover_tanker_link_to_dict(link: PrimeMoverTankerLink) -> dict:
+    """Link with both assets resolved to their code, name and chassis number.
+
+    The chassis number is the asset's ``serial_number`` (OTMS shows the same
+    value for the tanker on the link page).
+    """
+    prime_mover = link.prime_mover_asset
+    tanker = link.tanker_asset
+    return {
+        "id": link.id,
+        "prime_mover_asset_id": link.prime_mover_asset_id,
+        "prime_mover_asset_code": prime_mover.asset_code if prime_mover else "",
+        "prime_mover_asset_name": prime_mover.asset_name if prime_mover else "",
+        "prime_mover_asset_type_code": prime_mover.asset_type_code if prime_mover else "",
+        "prime_mover_asset_type_name": _asset_type_name(prime_mover.asset_type_code) if prime_mover else "",
+        "prime_mover_chassis_number": (prime_mover.serial_number or "") if prime_mover else "",
+        "prime_mover_asset_status": prime_mover.status if prime_mover else "",
+        "tanker_asset_id": link.tanker_asset_id,
+        "tanker_asset_code": tanker.asset_code if tanker else "",
+        "tanker_asset_name": tanker.asset_name if tanker else "",
+        "tanker_asset_type_code": tanker.asset_type_code if tanker else "",
+        "tanker_asset_type_name": _asset_type_name(tanker.asset_type_code) if tanker else "",
+        "tanker_chassis_number": (tanker.serial_number or "") if tanker else "",
+        "tanker_asset_status": tanker.status if tanker else "",
+        "linked_from": link.linked_from,
+        "linked_to": link.linked_to,
+        "remarks": link.remarks or "",
+        "status": link.status,
+        "is_current": link.status == "Active",
+        "created_by_name": link.created_by.full_name if link.created_by else "",
+        "updated_by_name": link.updated_by.full_name if link.updated_by else "",
+        "created_at": link.created_at,
+        "updated_at": link.updated_at,
+    }
+
+
+def operation_to_dict(operation: Operation) -> dict:
+    operation_type = get_operation_type(operation.operation_type_code) or {}
+    category = get_operation_category(operation.operation_category) or {}
+    location = operation.location
+    return {
+        "id": operation.id,
+        "location_id": operation.location_id,
+        "location_name": location.location_name if location else "",
+        "location_code": location.location_code if location else "",
+        "operation_type_code": operation.operation_type_code,
+        "operation_type_name": operation_type.get("name", operation.operation_type_code),
+        "asset_type_code": operation_type.get("asset_type_code", ""),
+        "asset_type_name": operation_type.get("asset_type_name", ""),
+        "operation_category": operation.operation_category,
+        "operation_category_label": category.get("label", operation.operation_category),
+        "operation_sign": operation.operation_sign,
+        "operation_code": operation.operation_code,
+        "operation_label": operation.operation_label,
+        "sort_order": operation.sort_order,
+        "description": operation.description or "",
+        "status": operation.status,
+        "created_at": operation.created_at,
+        "updated_at": operation.updated_at,
+    }
+
