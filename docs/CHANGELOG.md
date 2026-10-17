@@ -193,3 +193,12 @@ rules. Nothing was copied verbatim where the owner rules change the design.
   dashboards and permission placeholders exist.
 - User Master is read-only apart from import; create/edit/reset-password screens are next.
 - Module dashboards beyond User Management, Auditing and System are placeholders.
+
+## 2026-10-17 — Operation Entry metadata and ticket register refinement
+
+- Limited entry metadata to operation type, primary asset, sender/receiver, operation date and remarks; operation selection now appears only in the payload section.
+- Single accessible sender location defaults automatically; multiple-location users retain the scoped selector. Receiver is shown and required for global assets only; changing to a local asset clears receiver/destination.
+- Added a local-date Today shortcut, retained locked receiving routes, and moved layout/convoy controls out of metadata without changing measurement layouts.
+- Grouped ticket/date, operation/layout and asset/code in a seven-column register with consistently aligned action buttons.
+- Verification: production build passes; 186 backend tests pass. Updated browser suite parses (20 tests); browser execution was not performed in this environment.
+- Details: `docs/changes/2026-10-17-operation-entry-metadata.md`.

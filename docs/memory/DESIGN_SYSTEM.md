@@ -166,3 +166,11 @@ and Shuttle/FSO/meter row groups. Scope their geometry in `styles/operation-entr
 colour tokens in both themes. Do not replace these with a generic template/JSON editor. New
 lookup, confirmation and import controls must remain keyboard-accessible without moving the
 source's measurement/result sections.
+
+### Operation Entry metadata refinement (2026-10-17)
+
+The header is restricted to operation type, primary asset, sender/receiver, operation date and
+remarks. Operation selection belongs only in the payload section; fixed-layout summary and
+convoy references sit there too. Receiver is conditional on Global scope. Sender replaces the
+separate origin selector, defaulting when there is one accessible location. The ticket register
+uses grouped secondary text and a bounded action grid; preserve measurement/card geometry.
