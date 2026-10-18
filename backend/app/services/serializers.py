@@ -118,6 +118,7 @@ def user_to_dict(user: User, include_roles: bool = True) -> dict:
         "department": user.department or "",
         "designation": user.designation or "",
         "status": user.status,
+        "all_locations_access": bool(getattr(user, "all_locations_access", False)),
         "force_password_change": bool(user.force_password_change),
         "force_2fa": bool(user.force_2fa),
         "totp_enabled": bool(user.totp_enabled),

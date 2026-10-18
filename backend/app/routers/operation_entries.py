@@ -10,7 +10,8 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.database import get_db
 from app.models import (Asset, Location, Operation, OperationEntry, OperationEntryStatusHistory,
-    PrimeMoverTankerLink, FlowmeterConfig, BargeSealMaster, OperationVoyage, OperationPosting)
+    PrimeMoverTankerLink, FlowmeterConfig, BargeSealMaster, OperationVoyage, OperationPosting,
+    OperationTask, OperationTaskEvent)
 from app.dependencies.permissions import require_permission, require_any_permission, get_user_location_ids
 from app.schemas import OperationEntryCreate, OperationEntryUpdate, OperationEntryCalculateRequest, OperationEntryStatusChange
 from app.services.operation_entry_access import (get_entry, scoped_entries, scoped_asset, ensure_location,
@@ -500,6 +501,79 @@ def _posting(db, entry):
         quantity_bbl=quantity, water_bbl=water, event_type=entry.barge_event_type))
 
 
+def _sync_operation_task(db, entry, user, action: str, remarks: str | None = None):
+    task = db.query(OperationTask).filter(OperationTask.entry_id == entry.id).order_by(OperationTask.id.desc()).first()
+    actor_disp = user.full_name or user.username
+    if action == "submit":
+        if task is None:
+            seq = db.query(OperationTask).count() + 1
+            tnum = f"TSK-{entry.operation_date.strftime('%Y%m%d')}-{seq:04d}"
+            while db.query(OperationTask).filter(OperationTask.task_number == tnum).first():
+                seq += 1
+                tnum = f"TSK-{entry.operation_date.strftime('%Y%m%d')}-{seq:04d}"
+            task = OperationTask(
+                task_number=tnum,
+                task_type="Approval Review",
+                entry_id=entry.id,
+                ticket_number=entry.ticket_number,
+                operation_code=entry.operation_code_snapshot,
+                operation_type_code=entry.operation_type_code,
+                asset_type_code=entry.asset_type_code,
+                primary_asset_code=entry.asset_code_snapshot,
+                location_id=entry.location_id,
+                location_code=entry.location.location_code if entry.location else None,
+                raised_by_user_id=user.id,
+                status="Pending",
+                priority="Normal",
+                remarks=remarks,
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+            db.add(task)
+            db.flush()
+        else:
+            task.status = "Pending"
+            task.taken_by_user_id = None
+            task.taken_at = None
+            task.acted_by_user_id = None
+            task.acted_at = None
+            task.updated_at = utcnow()
+        db.add(
+            OperationTaskEvent(
+                task_id=task.id,
+                event_type="SUBMITTED",
+                old_status="Draft",
+                new_status="Pending",
+                actor_user_id=user.id,
+                actor_display=actor_disp,
+                notes=remarks or "Submitted for approval",
+                created_at=utcnow(),
+            )
+        )
+    elif task is not None:
+        status_map = {"recall": "Cancelled", "reject": "Rejected", "approve": "Approved", "cancel": "Cancelled"}
+        if action in status_map:
+            old_st = task.status
+            task.status = status_map[action]
+            task.acted_by_user_id = user.id
+            task.acted_at = utcnow()
+            task.action_taken = action.title()
+            task.remarks = remarks or task.remarks
+            task.updated_at = utcnow()
+            db.add(
+                OperationTaskEvent(
+                    task_id=task.id,
+                    event_type=action.upper(),
+                    old_status=old_st,
+                    new_status=task.status,
+                    actor_user_id=user.id,
+                    actor_display=actor_disp,
+                    notes=remarks,
+                    created_at=utcnow(),
+                )
+            )
+
+
 @router.post("/{entry_id}/{action}")
 def transition(entry_id: int, action: Literal["submit", "recall", "reject", "approve", "cancel"], body: OperationEntryStatusChange,
                request: Request, db=Depends(get_db), user=Depends(ticket_read)):
@@ -532,6 +606,7 @@ def transition(entry_id: int, action: Literal["submit", "recall", "reject", "app
         entry.approved_by_user_id, entry.approved_at = user.id, utcnow()
         _posting(db, entry)
     if action == "cancel": entry.receiver_link_key = None
+    _sync_operation_task(db, entry, user, action, body.remarks)
     _history(db, entry, user, action.title(), previous, body.remarks)
     _audit(db, request, user, action.title(), entry, old_status=previous, new_status=target, remarks=body.remarks,
         details_summary=f"Version {body.version}; review confirmed={body.review_confirmed}")

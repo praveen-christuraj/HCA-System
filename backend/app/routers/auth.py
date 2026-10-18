@@ -27,6 +27,7 @@ from app.models import (
     PasswordResetRequest,
     TokenBlacklist,
     User,
+    UserBackupCode,
 )
 from app.schemas import (
     ChangePasswordRequest,
@@ -44,9 +45,11 @@ from app.utils.jwt import (
     create_refresh_token,
     decode_refresh_token,
 )
+from app.utils.pagination import paginate_query
 from app.utils.password_policy import validate_password_policy
 from app.utils.security import (
     decrypt_security_value,
+    encrypt_security_value,
     hash_password,
     verify_password,
 )
@@ -553,3 +556,273 @@ def request_password_reset(
             "contact your administrator if you need urgent access."
         )
     }
+
+
+def _issue_backup_codes(db: Session, user: User, count: int = 8) -> list[str]:
+    db.query(UserBackupCode).filter(UserBackupCode.user_id == user.id).delete()
+    codes: list[str] = []
+    for _ in range(count):
+        raw = f"{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
+        codes.append(raw)
+        db.add(
+            UserBackupCode(
+                user_id=user.id,
+                code_hash=hash_password(raw),
+                created_at=utcnow(),
+            )
+        )
+    return codes
+
+
+@router.post("/2fa/setup")
+def setup_2fa(
+    request: Request,
+    user: User = Depends(require_permission("profile:update")),
+    db: Session = Depends(get_db),
+):
+    secret = pyotp.random_base32()
+    user.totp_secret = encrypt_security_value(secret)
+    user.updated_at = utcnow()
+    provisioning_uri = pyotp.TOTP(secret).provisioning_uri(
+        name=user.username,
+        issuer_name="HCA Enterprise",
+    )
+    create_audit_log(
+        db,
+        module_name="Profile & Security",
+        action="2FA Setup Initiated",
+        category="Security",
+        current_user=user,
+        entity_type="User",
+        entity_id=user.id,
+        entity_label=display_name(user),
+        request=request,
+        remarks="Generated new TOTP secret for two-factor enrolment",
+        details_summary=f"username={user.username}",
+    )
+    db.commit()
+    return {
+        "secret": secret,
+        "otpauth_url": provisioning_uri,
+        "issuer": "HCA Enterprise",
+        "account_name": user.username,
+    }
+
+
+@router.post("/2fa/enable")
+def enable_2fa(
+    payload: dict,
+    request: Request,
+    user: User = Depends(require_permission("profile:update")),
+    db: Session = Depends(get_db),
+):
+    code = str(payload.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Verification code is required")
+    secret = decrypt_security_value(user.totp_secret)
+    if not secret:
+        raise HTTPException(status_code=400, detail="Initiate 2FA setup first")
+    if not pyotp.TOTP(secret).verify(code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid authenticator verification code")
+
+    user.totp_enabled = True
+    user.totp_confirmed_at = utcnow()
+    user.force_2fa = False
+    user.updated_at = utcnow()
+    backup_codes = _issue_backup_codes(db, user)
+
+    create_audit_log(
+        db,
+        module_name="Profile & Security",
+        action="Enable 2FA",
+        category="Security",
+        current_user=user,
+        entity_type="User",
+        entity_id=user.id,
+        entity_label=display_name(user),
+        request=request,
+        remarks="Two-factor authentication enabled and backup codes generated",
+        details_summary=f"username={user.username}; backup_codes={len(backup_codes)}",
+    )
+    db.commit()
+    return {
+        "message": "Two-factor authentication enabled",
+        "totp_enabled": True,
+        "backup_codes": backup_codes,
+    }
+
+
+@router.post("/2fa/disable")
+def disable_2fa(
+    payload: dict,
+    request: Request,
+    user: User = Depends(require_permission("profile:update")),
+    db: Session = Depends(get_db),
+):
+    password = str(payload.get("current_password") or payload.get("password") or "").strip()
+    if not password or not verify_password(password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is required to disable 2FA")
+
+    user.totp_enabled = False
+    user.totp_secret = None
+    user.totp_confirmed_at = None
+    user.updated_at = utcnow()
+    db.query(UserBackupCode).filter(UserBackupCode.user_id == user.id).delete()
+
+    create_audit_log(
+        db,
+        module_name="Profile & Security",
+        action="Disable 2FA",
+        category="Security",
+        current_user=user,
+        entity_type="User",
+        entity_id=user.id,
+        entity_label=display_name(user),
+        request=request,
+        remarks="Two-factor authentication disabled",
+        details_summary=f"username={user.username}",
+    )
+    db.commit()
+    return {"message": "Two-factor authentication disabled", "totp_enabled": False}
+
+
+@router.post("/2fa/backup-codes/regenerate")
+def regenerate_backup_codes(
+    payload: dict | None = None,
+    request: Request = None,
+    user: User = Depends(require_permission("profile:update")),
+    db: Session = Depends(get_db),
+):
+    if not user.totp_enabled:
+        raise HTTPException(status_code=400, detail="Enable two-factor authentication before generating backup codes")
+    backup_codes = _issue_backup_codes(db, user)
+    create_audit_log(
+        db,
+        module_name="Profile & Security",
+        action="Regenerate Backup Codes",
+        category="Security",
+        current_user=user,
+        entity_type="User",
+        entity_id=user.id,
+        entity_label=display_name(user),
+        request=request,
+        remarks="Generated new single-use backup codes",
+        details_summary=f"username={user.username}; count={len(backup_codes)}",
+    )
+    db.commit()
+    return {"backup_codes": backup_codes, "backup_codes_remaining": len(backup_codes)}
+
+
+@router.get("/password-reset-requests")
+def list_password_reset_requests(
+    page: int = 1,
+    page_size: int = 20,
+    status: str | None = None,
+    search: str | None = None,
+    user: User = Depends(require_permission("profile:read")),
+    db: Session = Depends(get_db),
+):
+    from app.dependencies.permissions import user_has_permission
+
+    can_manage_all = user_has_permission(db, user, "users:update") or user_has_permission(db, user, "users:read")
+    query = db.query(PasswordResetRequest)
+    if not can_manage_all:
+        query = query.filter(PasswordResetRequest.user_id == user.id)
+    if status:
+        query = query.filter(PasswordResetRequest.status == status)
+    if search:
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            (PasswordResetRequest.request_number.ilike(term))
+            | (PasswordResetRequest.username.ilike(term))
+            | (PasswordResetRequest.reason.ilike(term))
+        )
+    result = paginate_query(query.order_by(PasswordResetRequest.id.desc()), page=page, page_size=page_size)
+    result["items"] = [
+        {
+            "id": r.id,
+            "request_number": r.request_number,
+            "user_id": r.user_id,
+            "username": r.username,
+            "status": r.status,
+            "reason": r.reason or "",
+            "notes": r.reason or "",
+            "reset_2fa": bool(r.reset_2fa),
+            "requested_at": r.requested_at,
+            "requested_by_ip": r.requested_by_ip or "",
+            "resolved_by_user_id": r.acted_by_user_id,
+            "resolved_at": r.acted_at,
+            "resolution_remarks": r.action_notes or "",
+            "resolution_notes": r.action_notes or "",
+        }
+        for r in result["items"]
+    ]
+    return result
+
+
+@router.post("/password-reset-requests/{request_id}/resolve")
+def resolve_password_reset_request(
+    request_id: int,
+    payload: dict,
+    request: Request,
+    actor: User = Depends(require_permission("users:update")),
+    db: Session = Depends(get_db),
+):
+    reset_req = db.get(PasswordResetRequest, request_id)
+    if reset_req is None:
+        raise HTTPException(status_code=404, detail="Password reset request not found")
+    if reset_req.status != "Pending":
+        raise HTTPException(status_code=400, detail="Password reset request is already resolved")
+
+    decision = str(payload.get("action") or payload.get("status") or "Resolved").strip().title()
+    if decision not in ("Approved", "Rejected", "Resolved"):
+        raise HTTPException(status_code=400, detail="Action must be Approved, Resolved, or Rejected")
+
+    remarks = str(payload.get("remarks") or payload.get("resolution_notes") or "").strip() or None
+    target_user = db.get(User, reset_req.user_id)
+    new_password = str(payload.get("new_password") or "").strip()
+    if decision in ("Approved", "Resolved") and new_password:
+        if target_user is None:
+            raise HTTPException(status_code=404, detail="Target user no longer exists")
+        validate_password_policy(new_password)
+        target_user.password_hash = hash_password(new_password)
+        target_user.password_changed_at = utcnow()
+        target_user.force_password_change = True
+        target_user.failed_login_count = 0
+        target_user.locked_until = None
+        if reset_req.reset_2fa or bool(payload.get("reset_2fa")):
+            target_user.totp_enabled = False
+            target_user.totp_secret = None
+            target_user.totp_confirmed_at = None
+            db.query(UserBackupCode).filter(UserBackupCode.user_id == target_user.id).delete()
+
+    reset_req.status = decision
+    reset_req.acted_by_user_id = actor.id
+    reset_req.acted_at = utcnow()
+    reset_req.action_notes = remarks
+
+    create_audit_log(
+        db,
+        module_name="Profile & Security",
+        action=f"{decision} Password Reset Request",
+        category="Security",
+        current_user=actor,
+        entity_type="PasswordResetRequest",
+        entity_id=reset_req.id,
+        entity_label=reset_req.request_number,
+        old_status="Pending",
+        new_status=decision,
+        request=request,
+        remarks=remarks or f"Password reset request {decision.lower()}",
+        details_summary=f"request_number={reset_req.request_number}; username={reset_req.username}; decision={decision}",
+    )
+    db.commit()
+    return {
+        "id": reset_req.id,
+        "request_number": reset_req.request_number,
+        "status": reset_req.status,
+        "resolved_at": reset_req.acted_at,
+        "resolution_remarks": reset_req.action_notes or "",
+        "resolution_notes": reset_req.action_notes or "",
+    }
+

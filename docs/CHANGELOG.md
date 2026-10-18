@@ -5,6 +5,20 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-18 — Full OTMS Module Parity Across All Module Groups
+
+**Note:** [`changes/2026-10-18-extended-otms-modules.md`](changes/2026-10-18-extended-otms-modules.md)
+
+- Ported all remaining operational, configuration, reporting, export, backup, and system modules from `hydrocarbon-accounting-otms` into HCA System without altering core OTMS business logic and while preserving ADR-014, ADR-016, ADR-019, and ADR-020.
+- **User Management & Profile**: Permission Master export (CSV/XLSX/PDF), User Location Assignment (`user_locations` + `users.all_locations_access`), Access Summary matrix, and Profile & Security (`/profile-security`, TOTP 2FA setup/enable/disable, backup codes, password reset request workflow).
+- **Master Data**: Asset Assignment (`/asset-assignments`) and Asset Assignment Summary (`/asset-assignment-summary`).
+- **Configurations**: Location Operation Availability & Summary, Location Accounting Day Setting, Company Report Profile Master, Material Balance Template Master, Operation References shortcuts, and Flowmeter Configuration Change History.
+- **Business & Operation Tracking**: Flowmeter Record Entry (`/flowmeter-records`), Movement Mapping (`/movement-mappings`), Operation Task Manager (`/operation-tasks` synced with ticket transitions), and Approved Transaction Correction Requests (`/correction-requests`).
+- **Export Operations**: Export Dashboard, Export Transactions, Export Reports, Export Permits, Export Locations, Export Entities, Export Blocks, Export Consignees, and Export Settings (`/export-operations/*`).
+- **Reports, Back-up & System**: Tank Operation Summary & Stock Ledger (`/tank-operation-summary`), Out-Turn Summary (`/out-turn-summary`), Material Balance Report (`/material-balance-report`), Backup & Recovery (`/backup-recovery`), System Notification Master (`/system-notifications`), and read-only Database Browser (`/database-browser`).
+- Added 38 typed SQLAlchemy models (82 tables total, **0 JSON/JSONB columns**) and 14 new RBAC resources (**119 permissions** total).
+- Verification: **201 backend tests passed** (`pytest -q`) and frontend production build succeeded (`npm run build`).
+
 ## 2026-10-18 — Operation Tracking module and Operation Transaction Register
 
 **Note:** [`changes/2026-10-18-operation-tracking.md`](changes/2026-10-18-operation-tracking.md)

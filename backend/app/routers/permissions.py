@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, time
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app.config import MAX_EXPORT_ROWS
 from app.database import get_db
 from app.dependencies.permissions import require_permission
 from app.models import Permission, User
@@ -17,6 +20,7 @@ from app.utils.default_permissions import (
     PERMISSION_CATALOG,
     STANDARD_PERMISSION_NAMES,
 )
+from app.utils.exporters import csv_response, pdf_response, xlsx_response
 from app.utils.pagination import paginate_query
 from app.utils.time import utcnow
 
@@ -66,16 +70,16 @@ def permission_catalog(
     }
 
 
-@router.get("")
-def list_permissions(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20),
+def _filtered_permissions(
+    db: Session,
+    *,
     search: str | None = None,
     category: str | None = None,
     module_name: str | None = None,
+    action: str | None = None,
     status: str | None = None,
-    user: User = Depends(require_permission("permissions:read")),
-    db: Session = Depends(get_db),
+    date_from: date | None = None,
+    date_to: date | None = None,
 ):
     query = db.query(Permission)
     if search:
@@ -92,8 +96,41 @@ def list_permissions(
         query = query.filter(Permission.category == category)
     if module_name:
         query = query.filter(Permission.module_name == module_name)
+    if action:
+        query = query.filter(Permission.action == action)
     if status:
         query = query.filter(Permission.status == status)
+    if date_from:
+        query = query.filter(Permission.created_at >= datetime.combine(date_from, time.min))
+    if date_to:
+        query = query.filter(Permission.created_at <= datetime.combine(date_to, time.max))
+    return query
+
+
+@router.get("")
+def list_permissions(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20),
+    search: str | None = None,
+    category: str | None = None,
+    module_name: str | None = None,
+    action: str | None = None,
+    status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    user: User = Depends(require_permission("permissions:read")),
+    db: Session = Depends(get_db),
+):
+    query = _filtered_permissions(
+        db,
+        search=search,
+        category=category,
+        module_name=module_name,
+        action=action,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+    )
 
     result = paginate_query(
         query.order_by(Permission.category, Permission.module_name, Permission.permission_name),
@@ -105,7 +142,75 @@ def list_permissions(
         value
         for (value,) in db.query(Permission.category).distinct().order_by(Permission.category).all()
     ]
+    result["modules"] = [
+        value
+        for (value,) in db.query(Permission.module_name).distinct().order_by(Permission.module_name).all()
+    ]
+    result["actions"] = [
+        value
+        for (value,) in db.query(Permission.action).distinct().order_by(Permission.action).all()
+    ]
     return result
+
+
+@router.get("/export")
+def export_permissions(
+    request: Request,
+    format: str = Query("csv", pattern="^(csv|xlsx|pdf)$"),
+    search: str | None = None,
+    category: str | None = None,
+    module_name: str | None = None,
+    action: str | None = None,
+    status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    actor: User = Depends(require_permission("permissions:read")),
+    db: Session = Depends(get_db),
+):
+    records = (
+        _filtered_permissions(
+            db,
+            search=search,
+            category=category,
+            module_name=module_name,
+            action=action,
+            status=status,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        .order_by(Permission.category, Permission.module_name, Permission.permission_name)
+        .limit(MAX_EXPORT_ROWS)
+        .all()
+    )
+    headers = ["Capability", "Module", "Category", "Action", "Description", "Status"]
+    rows = [
+        [
+            item.permission_name,
+            item.module_name,
+            item.category,
+            item.action,
+            item.description or "",
+            item.status,
+        ]
+        for item in records
+    ]
+    create_audit_log(
+        db,
+        module_name="Permission Master",
+        action="Export Permissions",
+        category="Export",
+        current_user=actor,
+        request=request,
+        remarks=f"Exported {len(rows)} permissions as {format.upper()}",
+        details_summary=f"format={format}; count={len(rows)}",
+    )
+    db.commit()
+    request.state.audit_written = True
+    if format == "csv":
+        return csv_response("permissions", headers, rows)
+    if format == "xlsx":
+        return xlsx_response("permissions", "Permissions", headers, rows)
+    return pdf_response("permissions", "Permission Catalog", headers, rows)
 
 
 @router.post("", status_code=201)

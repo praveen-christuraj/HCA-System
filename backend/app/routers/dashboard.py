@@ -17,22 +17,39 @@ from app.dependencies.permissions import (
     user_has_permission,
 )
 from app.models import (
+    ApprovedTransactionCorrectionRequest,
     Asset,
+    AssetAssignment,
     AssetCalibrationRow,
     AssetCalibrationTable,
     AssetTank,
     AuditLog,
+    BackupJob,
+    BackupRestoreRequest,
+    CompanyReportProfile,
+    ExportPermit,
+    ExportTransaction,
+    FlowmeterRecord,
     Location,
+    LocationAccountingDaySetting,
+    LocationOperationAvailability,
+    MaterialBalanceTemplate,
+    MovementMapping,
     Operation,
     OperationEntry,
+    OperationPosting,
+    OperationTask,
     OperationVoyage,
+    OutTurnSummaryConfig,
     PasswordResetRequest,
     Permission,
     PermissionPreset,
     PrimeMoverTankerLink,
     Role,
     RoleLocation,
+    SystemNotification,
     User,
+    UserLocation,
 )
 from app.config import MAX_PERMISSION_PRESETS
 from app.services.serializers import audit_to_dict, user_to_dict
@@ -278,26 +295,33 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
         {
             "key": "reports",
             "name": "Report Modules",
-            "status": "Planned",
+            "status": "Available",
             "description": (
-                "Tank stock ledger, out-turn, material balance, tanker transaction and "
-                "tracking reports with print-grade PDF output."
+                "Tank stock ledger, vessel stock ledger, tank operation summary, out-turn summary, "
+                "template-driven material balance report, and tanker transaction report with CSV, XLSX, and PDF exports."
             ),
             "path": "/modules/reports",
             "permission": "dashboard:read",
-            "metrics": [],
+            "metrics": [
+                {"label": "Approved postings", "value": db.query(func.count(OperationPosting.id)).scalar() or 0},
+                {"label": "Material balance templates", "value": db.query(func.count(MaterialBalanceTemplate.id)).scalar() or 0},
+                {"label": "Export transactions", "value": db.query(func.count(ExportTransaction.id)).scalar() or 0},
+            ],
         },
         {
             "key": "backup",
             "name": "Back-up Modules",
-            "status": "Planned",
+            "status": "Available",
             "description": (
-                "Backup settings, scheduled backup jobs, restore requests and validation, "
-                "with full auditing."
+                "Backup schedule & retention settings, manual and scheduled backup jobs with SHA-256 verification, "
+                "and 4-eyes restore approval, dry-run validation, and execution."
             ),
             "path": "/modules/backup",
             "permission": "dashboard:read",
-            "metrics": [],
+            "metrics": [
+                {"label": "Backup jobs", "value": db.query(func.count(BackupJob.id)).scalar() or 0},
+                {"label": "Restore requests", "value": db.query(func.count(BackupRestoreRequest.id)).scalar() or 0},
+            ],
         },
         {
             "key": "auditing",
@@ -317,26 +341,30 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
         {
             "key": "system",
             "name": "System Administration",
-            "status": "Foundation",
+            "status": "Available",
             "description": (
-                "Health, seed status and deployment diagnostics. Application settings and "
-                "notifications are planned."
+                "Health, seed status, system notification master & delivery tracking, and read-only database browser."
             ),
             "path": "/modules/system",
             "permission": "system:read",
-            "metrics": [],
+            "metrics": [
+                {"label": "Notifications", "value": db.query(func.count(SystemNotification.id)).scalar() or 0},
+                {"label": "Active users", "value": user_active},
+            ],
         },
         {
             "key": "profile",
             "name": "Profile & Security",
-            "status": "Planned",
+            "status": "Available",
             "description": (
-                "Password change, two-factor enrolment, backup codes and personal session "
-                "activity."
+                "Password change, TOTP two-factor enrolment, backup codes, password reset request administration, and session security."
             ),
             "path": "/modules/profile",
             "permission": "profile:read",
-            "metrics": [],
+            "metrics": [
+                {"label": "2FA enabled", "value": "Yes" if user.totp_enabled else "No"},
+                {"label": "Pending reset requests", "value": db.query(func.count(PasswordResetRequest.id)).filter(PasswordResetRequest.status == "Pending").scalar() or 0},
+            ],
         },
     ]
 
@@ -531,6 +559,10 @@ def module_dashboard(
                 "path": "/user-roles",
                 "all_permissions": ["users:read", "roles:read"],
             },
+            {"label": "Permission Master", "path": "/permissions", "permission": "permissions:read"},
+            {"label": "User Location Assignment", "path": "/user-locations", "permission": "users:read"},
+            {"label": "Access Summary", "path": "/access-summary", "permission": "users:read"},
+            {"label": "Profile & Security", "path": "/profile-security", "permission": "profile:read"},
             {"label": "Audit Trail", "path": "/audit", "permission": "audit:read"},
         ]
         activity_query = db.query(AuditLog).filter(AuditLog.module_name.in_(USER_MODULES))
@@ -627,6 +659,9 @@ def module_dashboard(
         )
         quick_links = [
             {"label": "Asset Master", "path": "/assets", "permission": "assets:read"},
+            {"label": "Asset Calibration", "path": "/asset-calibration", "permission": "assets:read"},
+            {"label": "Asset Assignment", "path": "/asset-assignments", "permission": "asset_assignments:read"},
+            {"label": "Asset Assignment Summary", "path": "/asset-assignment-summary", "permission": "asset_assignments:read"},
             {
                 "label": "Prime Mover-Tanker Link",
                 "path": "/prime-mover-tanker-links",
@@ -635,7 +670,7 @@ def module_dashboard(
             {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
         ]
         activity_query = db.query(AuditLog).filter(
-            AuditLog.module_name.in_(MASTER_DATA_MODULES)
+            AuditLog.module_name.in_(MASTER_DATA_MODULES + ("Asset Assignment",))
         )
     elif module_key == "configurations":
         type_total = len(operation_type_catalog())
@@ -682,11 +717,30 @@ def module_dashboard(
                 "permission": "operation_types:read",
             },
             {"label": "Operation Master", "path": "/operations", "permission": "operations:read"},
+            {"label": "Location Operation Availability", "path": "/location-operation-availability", "permission": "location_operation_availability:read"},
+            {"label": "Location Operation Summary", "path": "/location-operation-summary", "permission": "location_operation_availability:read"},
+            {"label": "Location Accounting Day Setting", "path": "/location-accounting-day-settings", "permission": "location_accounting_day_settings:read"},
+            {"label": "Company Report Profile Master", "path": "/company-report-profiles", "permission": "company_report_profiles:read"},
+            {"label": "Material Balance Template Master", "path": "/material-balance-template-master", "permission": "material_balance_templates:read"},
+            {"label": "Table-11 Factor Master", "path": "/table11-factors", "permission": "operation_references:read"},
+            {"label": "Flowmeter Configuration Master", "path": "/flowmeter-configs", "permission": "operation_references:read"},
+            {"label": "Barge Seal Master", "path": "/barge-seal-master", "permission": "operation_references:read"},
+            {"label": "Operation Workflow Policies", "path": "/operation-workflow-policies", "permission": "operation_policies:read"},
             {"label": "Operation References", "path": "/operation-references", "permission": "operation_references:read"},
             {"label": "Location Master", "path": "/locations", "permission": "locations:read"},
         ]
         activity_query = db.query(AuditLog).filter(
-            AuditLog.module_name.in_(CONFIGURATION_MODULES)
+            AuditLog.module_name.in_(
+                CONFIGURATION_MODULES
+                + (
+                    "Location Operation Availability",
+                    "Location Accounting Day Setting",
+                    "Company Report Profiles",
+                    "Material Balance Templates",
+                    "Operation References",
+                    "Operation Workflow Policies",
+                )
+            )
         )
     elif module_key == "business":
         entry_total = scoped_entries(db, user, party=True).with_entities(func.count(OperationEntry.id)).scalar() or 0
@@ -740,6 +794,10 @@ def module_dashboard(
                 "path": "/operation-entry",
                 "permission": "operation_entries:read",
             },
+            {"label": "Flowmeter Records", "path": "/flowmeter-records", "permission": "flowmeter_records:read"},
+            {"label": "Movement Mapping", "path": "/movement-mappings", "permission": "movement_mappings:read"},
+            {"label": "Operation Task Manager", "path": "/operation-tasks", "permission": "operation_tasks:read"},
+            {"label": "Export Operations Dashboard", "path": "/export-operations/dashboard", "permission": "export_operations:read"},
             {"label": "Operation Master", "path": "/operations", "permission": "operations:read"},
             {"label": "Asset Calibration", "path": "/asset-calibration", "permission": "assets:read"},
             {"label": "Operation References", "path": "/operation-references", "permission": "operation_references:read"},
@@ -783,11 +841,55 @@ def module_dashboard(
             {"label": "Shuttle Tracking", "path": "/shuttle-tracking", "permission": "shuttle_tracking:read"},
             {"label": "FSO Tracking", "path": "/fso-tracking", "permission": "fso_tracking:read"},
             {"label": "Tanker Transaction Report", "path": "/tanker-transaction-report", "permission": "tanker_transaction_reports:read"},
+            {"label": "Correction Requests", "path": "/correction-requests", "permission": "correction_requests:read"},
         ]
-        activity_query = db.query(AuditLog).filter(AuditLog.module_name.in_(TRACKING_MODULES))
+        activity_query = db.query(AuditLog).filter(AuditLog.module_name.in_(TRACKING_MODULES + ("Correction Requests",)))
         if get_user_location_ids(db, user) is not None:
             # Location-scoped users only see their own tracking activity here.
             activity_query = activity_query.filter(AuditLog.actor_user_id == user.id)
+    elif module_key == "reports":
+        postings_total = db.query(func.count(OperationPosting.id)).scalar() or 0
+        mbt_total = db.query(func.count(MaterialBalanceTemplate.id)).scalar() or 0
+        outturn_cfg = db.query(func.count(OutTurnSummaryConfig.id)).scalar() or 0
+        export_tx = db.query(func.count(ExportTransaction.id)).scalar() or 0
+        kpis = [
+            {"label": "Approved stock postings", "value": postings_total, "context": "Tank & vessel ledgers"},
+            {"label": "Material balance templates", "value": mbt_total, "context": "Configured layouts"},
+            {"label": "Out-turn locations configured", "value": outturn_cfg, "context": "Per-location columns"},
+            {"label": "Export transactions", "value": export_tx, "context": "Crude & gas exports"},
+        ]
+        breakdown = [
+            {"label": "Tank Operation Summary", "value": postings_total, "tone": "info"},
+            {"label": "Out-Turn Summary", "value": outturn_cfg, "tone": "success"},
+            {"label": "Material Balance Templates", "value": mbt_total, "tone": "info"},
+            {"label": "Export Transactions", "value": export_tx, "tone": "warning"},
+        ]
+        quick_links = [
+            {"label": "Tank Operation Summary", "path": "/tank-operation-summary", "permission": "reports:read"},
+            {"label": "Out-Turn Summary", "path": "/out-turn-summary", "permission": "reports:read"},
+            {"label": "Material Balance Report", "path": "/material-balance-report", "permission": "reports:read"},
+            {"label": "Tanker Transaction Report", "path": "/tanker-transaction-report", "permission": "tanker_transaction_reports:read"},
+            {"label": "Export Reports", "path": "/export-operations/reports", "permission": "export_operations:read"},
+        ]
+        activity_query = db.query(AuditLog).filter(AuditLog.module_name.in_(("Reports", "Export Operations", "Tanker Transaction Report")))
+    elif module_key == "backup":
+        jobs_total = db.query(func.count(BackupJob.id)).scalar() or 0
+        jobs_completed = db.query(func.count(BackupJob.id)).filter(BackupJob.status == "Completed").scalar() or 0
+        req_total = db.query(func.count(BackupRestoreRequest.id)).scalar() or 0
+        req_pending = db.query(func.count(BackupRestoreRequest.id)).filter(BackupRestoreRequest.status == "Pending Approval").scalar() or 0
+        kpis = [
+            {"label": "Backup jobs", "value": jobs_total, "context": f"{jobs_completed} completed"},
+            {"label": "Restore requests", "value": req_total, "context": f"{req_pending} pending approval"},
+        ]
+        breakdown = [
+            {"label": "Completed Backups", "value": jobs_completed, "tone": "success"},
+            {"label": "Pending Restore Approvals", "value": req_pending, "tone": "warning"},
+        ]
+        quick_links = [
+            {"label": "Backup & Recovery", "path": "/backup-recovery", "permission": "backup_recovery:read"},
+            {"label": "Audit Trail", "path": "/audit", "permission": "audit:read"},
+        ]
+        activity_query = db.query(AuditLog).filter(AuditLog.module_name == "Backup & Recovery")
     elif module_key == "auditing":
         audit_total = db.query(func.count(AuditLog.id)).scalar() or 0
         audit_today = (
@@ -837,14 +939,35 @@ def module_dashboard(
         roles_total = db.query(func.count(Role.id)).scalar() or 0
         permissions_total = db.query(func.count(Permission.id)).scalar() or 0
         audit_total = db.query(func.count(AuditLog.id)).scalar() or 0
+        notif_total = db.query(func.count(SystemNotification.id)).scalar() or 0
         kpis = [
             {"label": "Users", "value": users_total, "context": "All accounts"},
             {"label": "Roles", "value": roles_total, "context": "Including reserved Admin"},
             {"label": "Permissions", "value": permissions_total, "context": "Seeded catalog"},
+            {"label": "Notifications", "value": notif_total, "context": "System announcements"},
             {"label": "Audit events", "value": audit_total, "context": "Append-only"},
         ]
-        quick_links = [{"label": "Audit Trail", "path": "/audit", "permission": "audit:read"}]
-        activity_query = db.query(AuditLog).filter(AuditLog.module_name == "System Administration")
+        quick_links = [
+            {"label": "System Notification Master", "path": "/system-notifications", "permission": "system_notifications:read"},
+            {"label": "Database Browser", "path": "/database-browser", "permission": "database_browser:read"},
+            {"label": "Backup & Recovery", "path": "/backup-recovery", "permission": "backup_recovery:read"},
+            {"label": "Audit Trail", "path": "/audit", "permission": "audit:read"},
+        ]
+        activity_query = db.query(AuditLog).filter(
+            AuditLog.module_name.in_(("System Administration", "System Notifications", "Database Browser"))
+        )
+    elif module_key == "profile":
+        pending_resets = db.query(func.count(PasswordResetRequest.id)).filter(PasswordResetRequest.status == "Pending").scalar() or 0
+        kpis = [
+            {"label": "Account status", "value": user.status, "context": user.username},
+            {"label": "Two-factor (TOTP)", "value": "Enabled" if user.totp_enabled else "Disabled", "context": "Authenticator app"},
+            {"label": "Pending reset requests", "value": pending_resets, "context": "System-wide"},
+        ]
+        quick_links = [
+            {"label": "Profile & Security Settings", "path": "/profile-security", "permission": "profile:read"},
+            {"label": "Access Summary", "path": "/access-summary", "permission": "users:read"},
+        ]
+        activity_query = db.query(AuditLog).filter(AuditLog.actor_user_id == user.id)
     else:
         activity_query = db.query(AuditLog).filter(AuditLog.module_name.ilike(f"%{module['name']}%"))
 

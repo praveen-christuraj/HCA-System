@@ -146,19 +146,27 @@ def require_all_permissions(*permission_names: str):
 def get_user_location_ids(db: Session, user: User) -> set[int] | None:
     """Location ids a user may act on, or ``None`` when unrestricted.
 
-    Administrators and users with no role-location configuration are
-    unrestricted, which keeps the existing modules working unchanged. Once a
-    role is given locations, its members see only those locations plus anything
-    scoped ``Global``.
+    Administrators and users with ``all_locations_access`` enabled are
+    unrestricted. Otherwise, effective locations are the union of locations
+    granted via active roles (``RoleLocation``) and direct user-location
+    grants (``UserLocation``).
     """
-    from app.models import RoleLocation
+    from app.models import RoleLocation, UserLocation
 
-    if is_admin_user(user, db):
+    if is_admin_user(user, db) or bool(getattr(user, "all_locations_access", False)):
         return None
+
+    direct_rows = (
+        db.query(UserLocation.location_id)
+        .filter(UserLocation.user_id == user.id)
+        .distinct()
+        .all()
+    )
+    direct_ids = {int(location_id) for (location_id,) in direct_rows}
 
     role_ids = get_user_role_ids(db, user)
     if not role_ids:
-        return set()
+        return direct_ids
 
     rows = (
         db.query(RoleLocation.location_id)
@@ -166,7 +174,7 @@ def get_user_location_ids(db: Session, user: User) -> set[int] | None:
         .distinct()
         .all()
     )
-    return {int(location_id) for (location_id,) in rows}
+    return {int(location_id) for (location_id,) in rows} | direct_ids
 
 
 def get_user_permission_rows(db: Session, user: User) -> list[Permission]:
