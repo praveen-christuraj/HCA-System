@@ -2,7 +2,7 @@
 
 > Honest status board. **Never describe a Planned module as shipped.**
 > Updated whenever a module is added, partially delivered or completed.
-> Last updated: 2026-10-17 (Operation Entry delivery)
+> Last updated: 2026-10-18 (Operation Tracking delivery)
 
 ---
 
@@ -14,8 +14,9 @@
 | **User Management** | User Master, Role Master, Location Master, Permission Presets, Role Permission, Role Location, User Role assignment, profile and security | **Core identity, location access and RBAC delivered and verified:** user/role/location CRUD, imports/exports, permission assignments, capped named permission presets applied to roles in replace/add mode, role-location assignments, user-role assignments, reserved-Admin protections. Profile/security baseline remains available; further security administration is planned. |
 | **Master Data Management** | Asset Master over seven hard-coded asset types, tanks declared per asset, Asset Calibration with fixed three-column charts and dip-to-volume interpolation, Prime Mover-Tanker Link | **Asset Master, Asset Calibration and Prime Mover-Tanker Link delivered and verified:** fixed asset type catalog, Local/Global scoping, typed tanks, chart upload in cm/mm/m and L/kL/bbl converted to canonical cm/bbl, 2D and 3D interpolation, exports and full audit. The link pairs one prime mover with one tanker trailer, allows one Active link per asset, and supports close, import and export. Report profiles remain planned. Flowmeter configuration is now delivered under Operation References. |
 | **Configurations** | Fixed Operation Types mapped to asset types, the fixed operation categories with their stock signs, and the location-scoped Operation Master that feeds Operation Entry | **Operation Types and Operation Master delivered and verified:** hard-coded catalogue (ADR-019), read-only type and category pages, location-scoped operations with derived sign, unique code and name per location and type, deactivation, import, export and dashboard. Operation References now supplies Table 11, meter configurations, permanent seals, workflow policies and voyage guards. Editable OTMS Tracking Module Configuration remains out of scope; HCA keeps its fixed operation types. |
-| **Business / Operations** | Operation entry, transactions, workflow, tank/vessel operations, export operations, tracking | **Operation Entry delivered:** six fixed module payloads, two fixed legacy layouts, live calculations, Draft editing, reviewed submission/approval, recall/reject/cancel, linked receiving, audit and version protection. Detailed tracking/comparison reports, task inboxes, correction and export-operation workflows remain planned. |
-| **Report Modules** | Tank stock ledger, out-turn, material balance, tanker transaction, tracking reports | **Planned (OTMS extraction)** |
+| **Business / Operations** | Operation entry, tank/vessel operations, export operations | **Operation Entry delivered:** six fixed module payloads, two fixed legacy layouts, live calculations, linked receiving, audit and version protection. The page lists only Draft / Rejected tickets for editing; the workflow runs in Operation Tracking's Transaction Register. Task inboxes, correction and export-operation workflows remain planned. |
+| **Operation Tracking** | OTMS tracking modules: Operation Transaction Register, Barge / Tanker / Shuttle / FSO Tracking, Tanker Transaction Report | **Delivered (2026-10-18):** register with status tabs and OTMS workflow actions (submit, approve, reject, recall, cancel) plus detail and history. Barge receipt / timeline fix / LOAD-AFTER vs UNLOAD-BEFORE comparison / close-reopen / MTR. Tanker acknowledgement / seal and quantity cross-check / close / revoke. Shuttle and FSO voyages with close/reopen. FSO OTR / Material Balance / Outturn. Tanker Transaction Report. Module dashboard. Planned: correction / revoke of Approved tickets, Location Accounting Day Setting, task-inbox routing. |
+| **Report Modules** | Tank stock ledger, out-turn, material balance, tanker transaction, tracking reports | **Planned (OTMS extraction).** FSO OTR / Material Balance / Outturn and the Tanker Transaction Report are delivered under Operation Tracking; the tank stock ledger and the remaining reports are still planned. |
 | **Back-up Modules** | Backup settings, backup jobs, restore requests and validation | **Planned (OTMS extraction)** |
 | **Auditing Modules** | Audit trail, security events, UI activity, module audit dashboard | **Delivered (v0.1):** audit trail with filters, pagination and CSV/XLSX/PDF export; module dashboard. Security-event view and archive/purge remain planned. |
 | **System / Administration** | Health, seed status, application settings, notifications | **Foundation delivered:** health and seed status. Settings/notifications remain planned. |
@@ -138,11 +139,25 @@
   Both new pages are lazy-loaded; their CSS is scoped and works in both themes.
 - Shared master import previews now expose all rows through 20/50/100/200 pagination.
 
+- Operation Tracking (2026-10-18): top-nav group with seven lazy pages (`OperationTransactionRegister`,
+  `OperationTransactionDetail`, `BargeTracking`, `TankerTracking`, `ShuttleTracking`, `FSOTracking`,
+  `TankerTransactionReport`). Shared pieces live in `components/operationTracking/`:
+  - `TicketWorkflow.jsx`: review snapshot, workflow dialog, history and OTMS action rules, moved
+    out of Operation Entry;
+  - `TrackingKit.jsx`: register state, status tabs, filters, export group, remarks dialog;
+  - `VoyageTracking.jsx`: shuttle and FSO voyages.
+
+  Styles are in `styles/operation-tracking.css` (tokens only). The API client is
+  `api/operationTrackingApi.js`. Backend: `routers/operation_tracking.py` (prefix
+  `/api/operation-tracking`) and the pure helpers in `services/operation_tracking.py`.
+
 ### Deployment and schema
 
 - Docker Compose remains PostgreSQL + FastAPI + nginx-served React; cloud deploy remains native
   Python on Render. Startup creates the 22 new typed operational/reference tables and idempotently
-  seeds the extended **60-permission** catalogue. There are **42 tables** in total, with no JSON
+  seeds the extended permission catalogue, now **70 permissions** after Operation Tracking. There
+  are **44 tables** in total (Operation Tracking added `barge_timeline_events` and
+  `tanker_receipt_acknowledgements`), with no JSON
   columns. Existing baseline table columns are unchanged; no manual seed step or Alembic baseline
   is introduced. No OTMS legacy-data migration is claimed.
 
@@ -165,7 +180,11 @@
   OTMS data migration remain installation work, not covered by synthetic verification fixtures.
 - Earlier deliveries' evidence remains in their dated notes (master/assignment and preset APIs,
   calibration unit conversion, link/configuration browser review and import/export smoke tests).
+- Operation Tracking (2026-10-18): `python -m pytest -q` → **193 passed** (7 new tracking tests);
+  `npm run build` → success; live-API smoke checks against seeded data. The Playwright entry spec
+  now submits through the transaction detail page, but browser execution was not possible (no
+  Chromium binary here).
 - Planned: Profile & Security enhancements, an Alembic migration baseline, report profiles,
-  configurable tracking-module mappings, full tracking/comparison/report screens, task-inbox
-  routing, correction workflows, export operations, backup and audit archive/security dashboards.
+  configurable tracking-module mappings, Location Accounting Day Setting, task-inbox
+  routing, correction / revoke of Approved tickets, export operations, backup and audit archive/security dashboards.
   Do not describe those as delivered by the entry approval/posting foundation.

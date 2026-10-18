@@ -5,6 +5,37 @@ note in [`changes/`](changes/). Verification evidence is recorded with the entry
 
 ---
 
+## 2026-10-18 — Operation Tracking module and Operation Transaction Register
+
+**Note:** [`changes/2026-10-18-operation-tracking.md`](changes/2026-10-18-operation-tracking.md)
+
+- New top-nav group **Operation Tracking**: Module Dashboard, Operation Transaction Register (with
+  ticket detail), Barge Tracking, Tanker Tracking, Shuttle Tracking, FSO Tracking (Voyages, OTR,
+  Material Balance, Outturn) and the Tanker Transaction Report. Layouts follow OTMS.
+- **Operation Entry** now lists only Draft / Rejected tickets, with Edit / View and a *Workflow*
+  link per row. Submit, review, approve, reject, recall and cancel now happen in the Transaction
+  Register and the detail page, using the OTMS status-based actions. The workflow API and its
+  capabilities are unchanged; detail, history, export and transitions also accept
+  `operation_transactions:read`.
+- Barge Tracking:
+  - convoys, receipt acknowledge / revoke and Fix Timeline;
+  - LOAD AFTER vs UNLOAD BEFORE comparison (totals, per-tank, seals);
+  - close blockers, close / reopen and MTR export.
+- Tanker Tracking:
+  - receipt acknowledgement before the receiver entry;
+  - seal cross-check and receiver − sender variance;
+  - status KPIs, close / revoke and MTR.
+- Shuttle and FSO voyages can be closed and reopened. FSO reports use operation date as the
+  accounting date; the accounting-day setting is Planned.
+- Tracking is computed on read from Approved tickets. The only stored facts are typed
+  `barge_timeline_events` and `tanker_receipt_acknowledgements`: no JSON, and no writes on GET.
+  Every mutation and export is audited.
+- Ten new standard permissions under "Operation Tracking" bring the catalogue to 70; the schema now
+  has 44 tables. The correction / revoke workflow for Approved tickets remains Planned.
+- Verification: **193 backend tests** (186 before) and a successful frontend production build.
+  Live-API smoke checks passed against seeded data. The Playwright spec was updated for the new
+  submit path but not executed (no browser binary here).
+
 ## 2026-10-17 — Calibration upload: 5,000-row ceiling removed
 
 **Note:** [`changes/2026-10-17-calibration-chart-size-limit.md`](changes/2026-10-17-calibration-chart-size-limit.md)

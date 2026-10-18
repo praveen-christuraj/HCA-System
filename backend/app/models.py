@@ -802,6 +802,7 @@ class OperationEntry(Base):
     created_by = relationship("User", foreign_keys=[created_by_user_id])
     updated_by = relationship("User", foreign_keys=[updated_by_user_id])
     submitted_by = relationship("User", foreign_keys=[submitted_by_user_id])
+    approved_by = relationship("User", foreign_keys=[approved_by_user_id])
 
     tank_gauging = relationship(
         "OperationEntryTankGauging",
@@ -1406,6 +1407,8 @@ class OperationVoyage(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
     asset = relationship("Asset")
+    location = relationship("Location")
+    closed_by = relationship("User")
     __table_args__ = (UniqueConstraint("operation_type_code", "reference", "asset_id", "location_id", name="uq_operation_voyage_key"),)
 
 
@@ -1463,3 +1466,62 @@ class OperationWorkflowPolicyUser(Base):
     policy_id = Column(Integer, ForeignKey("operation_workflow_policies.id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), primary_key=True)
     mode = Column(String(10), nullable=False, default="ALLOW")
+
+
+# ---------------------------------------------------------------------------
+# Operation Tracking (OTMS Barge / Tanker tracking facts)
+# ---------------------------------------------------------------------------
+class BargeTimelineEvent(Base):
+    """Manually recorded barge timeline facts.
+
+    Ticket events (LOAD_1, LOAD_2_TOPUP, UNLOAD, STS) are derived from Approved
+    tickets on read. Only facts that are not tickets are stored here: receipt
+    acknowledgements (RECEIVED / RECEIPT_REVOKED) and administrator corrections
+    of a ticket's event type (``entry_id`` set, one correction per ticket).
+    """
+
+    __tablename__ = "barge_timeline_events"
+
+    id = Column(Integer, primary_key=True)
+    convoy_number = Column(String(50), nullable=False, index=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    entry_id = Column(Integer, ForeignKey("operation_entries.id", ondelete="RESTRICT"), nullable=True, unique=True)
+    event_type = Column(String(30), nullable=False)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True)
+    event_datetime = Column(DateTime, nullable=False, default=utcnow)
+    remarks = Column(Text, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    asset = relationship("Asset")
+    location = relationship("Location")
+    created_by = relationship("User")
+
+
+class TankerReceiptAcknowledgement(Base):
+    """Receiver acknowledgement and closure of one Approved tanker sender ticket."""
+
+    __tablename__ = "tanker_receipt_acknowledgements"
+
+    id = Column(Integer, primary_key=True)
+    sender_entry_id = Column(Integer, ForeignKey("operation_entries.id", ondelete="RESTRICT"), nullable=False, unique=True)
+    convoy_number = Column(String(50), nullable=True, index=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    receiver_location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False)
+    status = Column(String(20), nullable=False, default="Acknowledged")  # Acknowledged | Revoked | Closed
+    remarks = Column(Text, nullable=True)
+    acknowledged_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    acknowledged_at = Column(DateTime, nullable=False, default=utcnow)
+    revoked_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoke_remarks = Column(Text, nullable=True)
+    closed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    closure_remarks = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    receiver_location = relationship("Location")
+    acknowledged_by = relationship("User", foreign_keys=[acknowledged_by_user_id])
+    closed_by = relationship("User", foreign_keys=[closed_by_user_id])

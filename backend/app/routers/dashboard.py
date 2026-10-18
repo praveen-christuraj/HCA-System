@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies.auth import get_current_user
 from app.dependencies.permissions import (
+    get_user_location_ids,
     is_admin_user,
     require_permission,
     user_has_permission,
@@ -24,6 +25,7 @@ from app.models import (
     Location,
     Operation,
     OperationEntry,
+    OperationVoyage,
     PasswordResetRequest,
     Permission,
     PermissionPreset,
@@ -67,17 +69,47 @@ CONFIGURATION_MODULES = (
 
 BUSINESS_MODULES = ("Operation Entry",)
 
+TRACKING_MODULES = (
+    "Operation Transaction Register",
+    "Barge Tracking",
+    "Tanker Tracking",
+    "Shuttle Tracking",
+    "FSO Tracking",
+    "Tanker Transaction Report",
+)
+
+TRACKING_PERMISSIONS = (
+    "operation_transactions:read",
+    "barge_tracking:read",
+    "tanker_tracking:read",
+    "shuttle_tracking:read",
+    "fso_tracking:read",
+    "tanker_transaction_reports:read",
+)
+
 MODULE_PERMISSIONS = {
     "user-management": "users:read",
     "master-data": "assets:read",
     "configurations": "operation_types:read",
     "business": "operation_entries:read",
+    # Any one Operation Tracking page grants the module dashboard.
+    "operation-tracking": TRACKING_PERMISSIONS,
     "reports": "dashboard:read",
     "backup": "dashboard:read",
     "auditing": "audit:read",
     "system": "system:read",
     "profile": "profile:read",
 }
+
+
+def _scoped_voyages(db: Session, user: User):
+    query = db.query(OperationVoyage).filter(
+        OperationVoyage.operation_type_code.in_(("SHUTTLE_OPERATIONS", "FSO_OPERATIONS"))
+    )
+    allowed = get_user_location_ids(db, user)
+    if allowed is not None:
+        query = query.filter(OperationVoyage.location_id.in_(sorted(allowed)))
+    return query
 
 
 def _module_definitions(db: Session, user: User) -> list[dict]:
@@ -130,6 +162,24 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
         .scalar()
         or 0
     )
+
+    open_convoys = (
+        scoped_entries(db, user, party=True)
+        .with_entities(func.count(func.distinct(OperationEntry.convoy_number)))
+        .filter(
+            OperationEntry.operation_type_code == "BARGE_OPERATIONS",
+            OperationEntry.status == "Approved",
+            ~OperationEntry.convoy_number.in_(
+                db.query(OperationVoyage.reference).filter(
+                    OperationVoyage.operation_type_code == "BARGE_OPERATIONS",
+                    OperationVoyage.status == "CLOSED",
+                )
+            ),
+        )
+        .scalar()
+        or 0
+    )
+    open_vessel_voyages = _scoped_voyages(db, user).filter(OperationVoyage.status == "OPEN").count()
 
     return [
         {
@@ -190,9 +240,10 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
             "status": "Available",
             "description": (
                 "Operation Entry for every operation type and asset type on one page, "
-                "with fixed module payloads, live quantity calculation and ticket "
-                "submission, review and approval. Detailed tracking reports and stock "
-                "reconciliation dashboards remain planned."
+                "with fixed module payloads and live quantity calculation. It lists only "
+                "editable Draft/Rejected tickets; submission, review, approval, rejection, "
+                "recall and cancellation run from the Operation Transaction Register under "
+                "Operation Tracking. Stock reconciliation dashboards remain planned."
             ),
             "path": "/modules/business",
             "permission": "operation_entries:read",
@@ -200,6 +251,28 @@ def _module_definitions(db: Session, user: User) -> list[dict]:
                 {"label": "Operation entries", "value": entry_total},
                 {"label": "Editable (Draft/Rejected)", "value": entry_drafts},
                 {"label": "Submitted", "value": entry_submitted},
+            ],
+        },
+        {
+            "key": "operation-tracking",
+            "name": "Operation Tracking",
+            "status": "Available",
+            "description": (
+                "OTMS tracking modules: Operation Transaction Register (submit, review, "
+                "approve, reject, recall, cancel), Barge Tracking (receipt, timeline, "
+                "load/unload comparison, MTR, close/reopen), Tanker Tracking (receipt "
+                "acknowledgement, seal and quantity cross-check, close), Shuttle and FSO "
+                "Tracking (voyages, close/reopen, FSO OTR / material balance / outturn) "
+                "and the Tanker Transaction Report. Correction requests and the location "
+                "accounting-day setting remain planned."
+            ),
+            "path": "/modules/operation-tracking",
+            "permission": None,
+            "any_permissions": list(TRACKING_PERMISSIONS),
+            "metrics": [
+                {"label": "Submitted (awaiting decision)", "value": entry_submitted},
+                {"label": "Open barge convoys", "value": open_convoys},
+                {"label": "Open shuttle / FSO voyages", "value": open_vessel_voyages},
             ],
         },
         {
@@ -351,9 +424,10 @@ def portfolio_summary(
 
 def _require_module_access(db: Session, user: User, module_key: str) -> str:
     required = MODULE_PERMISSIONS.get(module_key, "dashboard:read")
-    if not is_admin_user(user, db) and not user_has_permission(db, user, required):
-        raise HTTPException(status_code=403, detail=f"Permission required: {required}")
-    return required
+    options = required if isinstance(required, tuple) else (required,)
+    if not is_admin_user(user, db) and not any(user_has_permission(db, user, name) for name in options):
+        raise HTTPException(status_code=403, detail="Permission required: " + " or ".join(options))
+    return options[0] if len(options) == 1 else " | ".join(options)
 
 
 @router.get("/modules/{module_key}")
@@ -674,6 +748,46 @@ def module_dashboard(
             AuditLog.module_name.in_(BUSINESS_MODULES),
             AuditLog.entity_id.in_(scoped_entries(db, user, party=True).with_entities(OperationEntry.id)),
         )
+    elif module_key == "operation-tracking":
+        scoped = scoped_entries(db, user, party=True)
+        count = lambda query: query.with_entities(func.count(OperationEntry.id)).scalar() or 0
+        barge_closed = db.query(OperationVoyage.reference).filter(
+            OperationVoyage.operation_type_code == "BARGE_OPERATIONS", OperationVoyage.status == "CLOSED"
+        )
+        approved_barge = scoped.filter(
+            OperationEntry.operation_type_code == "BARGE_OPERATIONS", OperationEntry.status == "Approved"
+        )
+        kpis = [
+            {"label": "Submitted", "value": count(scoped.filter(OperationEntry.status == "Submitted")), "context": "Awaiting approve / reject"},
+            {"label": "Approved today", "value": count(scoped.filter(OperationEntry.approved_at >= today_start)), "context": "Since midnight UTC"},
+            {
+                "label": "Open barge convoys",
+                "value": approved_barge.filter(~OperationEntry.convoy_number.in_(barge_closed))
+                .with_entities(func.count(func.distinct(OperationEntry.convoy_number))).scalar() or 0,
+                "context": "Approved tickets, not closed",
+            },
+            {
+                "label": "Open shuttle / FSO voyages",
+                "value": _scoped_voyages(db, user).filter(OperationVoyage.status == "OPEN").count(),
+                "context": "Voyage status OPEN",
+            },
+        ]
+        breakdown = [
+            {"label": status, "value": count(scoped.filter(OperationEntry.status == status)), "tone": tone}
+            for status, tone in (("Draft", "info"), ("Submitted", "warning"), ("Approved", "success"), ("Rejected", "danger"), ("Cancelled", "neutral"))
+        ]
+        quick_links = [
+            {"label": "Operation Transaction Register", "path": "/operation-transactions", "permission": "operation_transactions:read"},
+            {"label": "Barge Tracking", "path": "/barge-tracking", "permission": "barge_tracking:read"},
+            {"label": "Tanker Tracking", "path": "/tanker-tracking", "permission": "tanker_tracking:read"},
+            {"label": "Shuttle Tracking", "path": "/shuttle-tracking", "permission": "shuttle_tracking:read"},
+            {"label": "FSO Tracking", "path": "/fso-tracking", "permission": "fso_tracking:read"},
+            {"label": "Tanker Transaction Report", "path": "/tanker-transaction-report", "permission": "tanker_transaction_reports:read"},
+        ]
+        activity_query = db.query(AuditLog).filter(AuditLog.module_name.in_(TRACKING_MODULES))
+        if get_user_location_ids(db, user) is not None:
+            # Location-scoped users only see their own tracking activity here.
+            activity_query = activity_query.filter(AuditLog.actor_user_id == user.id)
     elif module_key == "auditing":
         audit_total = db.query(func.count(AuditLog.id)).scalar() or 0
         audit_today = (

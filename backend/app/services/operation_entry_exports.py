@@ -62,3 +62,14 @@ def ticket_snapshot_pdf(ticket_number, rows):
             r = table.row()
             for value in values: r.cell(_pdf_safe(str(value if value is not None else "")))
     return _response(pdf, "operation-ticket")
+
+
+def table_pdf(title, name, headers, rows, filters="", orientation="L"):
+    """Generic print-grade register/report table (Operation Tracking exports)."""
+    pdf = _pdf(title, filters or "All accessible records", orientation=orientation)
+    pdf.set_font("Helvetica", size=7 if len(headers) > 8 else 8)
+    with pdf.table(line_height=4, headings_style=FontFace(emphasis="BOLD", color=255, fill_color=(18,49,95)), repeat_headings=1) as table:
+        for values in [headers, *rows]:
+            r = table.row()
+            for value in values: r.cell(_pdf_safe(str(value if value is not None else "")))
+    return _response(pdf, name)

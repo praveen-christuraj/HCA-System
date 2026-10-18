@@ -90,6 +90,31 @@ export const navigationItems = [
     ],
   },
   {
+    // OTMS tracking modules: the ticket workflow register plus movement tracking.
+    label: 'Operation Tracking',
+    type: 'dropdown',
+    items: [
+      {
+        label: 'Module Dashboard',
+        path: '/modules/operation-tracking',
+        anyPermission: [
+          'operation_transactions:read',
+          'barge_tracking:read',
+          'tanker_tracking:read',
+          'shuttle_tracking:read',
+          'fso_tracking:read',
+          'tanker_transaction_reports:read',
+        ],
+      },
+      { label: 'Operation Transaction Register', path: '/operation-transactions', permission: 'operation_transactions:read' },
+      { label: 'Barge Tracking', path: '/barge-tracking', permission: 'barge_tracking:read' },
+      { label: 'Tanker Tracking', path: '/tanker-tracking', permission: 'tanker_tracking:read' },
+      { label: 'Shuttle Tracking', path: '/shuttle-tracking', permission: 'shuttle_tracking:read' },
+      { label: 'FSO Tracking', path: '/fso-tracking', permission: 'fso_tracking:read' },
+      { label: 'Tanker Transaction Report', path: '/tanker-transaction-report', permission: 'tanker_transaction_reports:read' },
+    ],
+  },
+  {
     label: 'Reports',
     type: 'dropdown',
     items: [
@@ -139,6 +164,12 @@ export const hiddenRouteLabels = {
   '/operations': 'Operation Master',
   '/operation-entry': 'Operation Entry',
   '/operation-references': 'Operation References',
+  '/operation-transactions': 'Operation Transaction Register',
+  '/barge-tracking': 'Barge Tracking',
+  '/tanker-tracking': 'Tanker Tracking',
+  '/shuttle-tracking': 'Shuttle Tracking',
+  '/fso-tracking': 'FSO Tracking',
+  '/tanker-transaction-report': 'Tanker Transaction Report',
   '/audit': 'Audit Trail',
 }
 

@@ -28,6 +28,11 @@ from app.config import MAX_EXPORT_ROWS
 
 router = APIRouter(prefix="/operation-entries", tags=["Operation Entry"])
 entry_read = require_permission("operation_entries:read")
+# Ticket detail, history, snapshot export and status actions are also reached
+# from the Operation Transaction Register (Operation Tracking), which is
+# granted separately from the Operation Entry page. Each status action still
+# requires its own submission / review / approval / cancel capability.
+ticket_read = require_any_permission("operation_entries:read", "operation_transactions:read")
 entry_write = require_any_permission("operation_entries:create", "receiving_tickets:create")
 
 
@@ -243,7 +248,7 @@ def options(user=Depends(entry_read)):
 @router.get("/lookups/{kind}")
 def lookups(kind: Literal["locations", "all-locations", "assets", "operations"], search: str = Query("", max_length=150),
             location_id: int | None = None, location_code: str | None = None, asset_code: str | None = None, operation_type_code: str | None = None, asset_type_code: str | None = None,
-            id: int | None = None, page: int = 1, page_size: int = 20, db=Depends(get_db), user=Depends(require_any_permission("operation_entries:read", "operation_references:read", "operation_policies:read"))):
+            id: int | None = None, page: int = 1, page_size: int = 20, db=Depends(get_db), user=Depends(require_any_permission("operation_entries:read", "operation_references:read", "operation_policies:read", "operation_transactions:read", "barge_tracking:read", "tanker_tracking:read", "shuttle_tracking:read", "fso_tracking:read", "tanker_transaction_reports:read"))):
     allowed = get_user_location_ids(db, user)
     if location_code:
         loc = db.query(Location).filter_by(location_code=location_code).first()
@@ -497,7 +502,7 @@ def _posting(db, entry):
 
 @router.post("/{entry_id}/{action}")
 def transition(entry_id: int, action: Literal["submit", "recall", "reject", "approve", "cancel"], body: OperationEntryStatusChange,
-               request: Request, db=Depends(get_db), user=Depends(entry_read)):
+               request: Request, db=Depends(get_db), user=Depends(ticket_read)):
     capability, target, sources = {
         "submit": ("operation_submissions:create", "Submitted", EDITABLE_STATUSES),
         "recall": ("operation_submissions:delete", "Draft", ("Submitted",)),
@@ -535,7 +540,7 @@ def transition(entry_id: int, action: Literal["submit", "recall", "reject", "app
 
 
 @router.get("/{entry_id}/export")
-def export_ticket(entry_id: int, request: Request, format: Literal["csv", "xlsx", "pdf"] = "pdf", db=Depends(get_db), user=Depends(entry_read)):
+def export_ticket(entry_id: int, request: Request, format: Literal["csv", "xlsx", "pdf"] = "pdf", db=Depends(get_db), user=Depends(ticket_read)):
     entry = get_entry(db, user, entry_id, party=True)
     data = operation_entry_to_dict(entry)
     rows = []
@@ -555,7 +560,7 @@ def export_ticket(entry_id: int, request: Request, format: Literal["csv", "xlsx"
 
 
 @router.get("/{entry_id}/history")
-def history(entry_id: int, page: int = 1, page_size: int = 20, db=Depends(get_db), user=Depends(entry_read)):
+def history(entry_id: int, page: int = 1, page_size: int = 20, db=Depends(get_db), user=Depends(ticket_read)):
     get_entry(db, user, entry_id, party=True)
     result = paginate_query(db.query(OperationEntryStatusHistory).filter_by(entry_id=entry_id).order_by(OperationEntryStatusHistory.id.desc()), page, page_size)
     result["items"] = [operation_entry_status_history_to_dict(h) for h in result["items"]]
@@ -563,7 +568,7 @@ def history(entry_id: int, page: int = 1, page_size: int = 20, db=Depends(get_db
 
 
 @router.get("/{entry_id}")
-def detail(entry_id: int, db=Depends(get_db), user=Depends(entry_read)):
+def detail(entry_id: int, db=Depends(get_db), user=Depends(ticket_read)):
     entry = get_entry(db, user, entry_id, party=True)
     result = operation_entry_to_dict(entry)
     recent = db.query(OperationEntryStatusHistory).filter_by(entry_id=entry_id).order_by(OperationEntryStatusHistory.id.desc()).limit(20).all()

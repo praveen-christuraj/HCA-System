@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { apiGet, apiDownload, buildQuery } from '../api/apiClient'
-import { entryOptions, entryLookup, getAssetContext, getEntry, listEntries, createEntry, updateEntry, transitionEntry, calculateEntry, linkedSender, exportEntries } from '../api/operationEntryApi'
+import { Link, useSearchParams } from 'react-router-dom'
+import { apiDownload } from '../api/apiClient'
+import { entryOptions, entryLookup, getAssetContext, getEntry, listEntries, createEntry, updateEntry, calculateEntry, linkedSender, exportEntries } from '../api/operationEntryApi'
 import { PageHead, Alert, Loading, Pagination, StatusTag } from '../components/common/Ui'
 import { usePermissions } from '../hooks/usePermissions'
 import { logUiAction } from '../utils/actionLogger'
@@ -10,19 +10,22 @@ import EntryLookup from '../components/operationLayouts/EntryLookup'
 import TankGaugingLayout from '../components/operationLayouts/TankGaugingLayout'
 import MultiTankBeforeAfterLayout from '../components/operationLayouts/MultiTankBeforeAfterLayout'
 import TankerTruckLayout from '../components/operationLayouts/TankerTruckLayout'
-import TankerPayloadPreview from '../components/operationLayouts/TankerPayloadPreview'
 import ShuttleTrackingLayout from '../components/operationLayouts/ShuttleTrackingLayout'
 import FSOTrackingLayout from '../components/operationLayouts/FSOTrackingLayout'
 import FlowmeterReadingLayout from '../components/operationLayouts/FlowmeterReadingLayout'
 import StockMovementLayout from '../components/operationLayouts/StockMovementLayout'
 import VesselCycleLayout from '../components/operationLayouts/VesselCycleLayout'
 import EntryImport from '../components/operationLayouts/EntryImport'
+import { Review, TicketHistory, human } from '../components/operationTracking/TicketWorkflow'
 import '../styles/operation-entry.css'
 
 const EMPTY = { operation_type_code: '', payload_code: '', operation_id: null, asset_id: null, location_id: null,
   destination_location_id: null, sender_location_id: null, receiver_location_id: null, linked_ticket_id: null,
   convoy_number: '', operation_date: '', operation_start_datetime: '', operation_end_datetime: '', product_name: '', remarks: '' }
-const FILTERS = { search: '', status: 'Draft,Rejected', operation_type_code: '', location_id: '', asset_id: '', product_name: '', date_from: '', date_to: '' }
+// Operation Entry lists only editable tickets; the workflow lives in the
+// Operation Transaction Register (Operation Tracking), as in OTMS.
+const EDITABLE = 'Draft,Rejected'
+const FILTERS = { search: '', status: EDITABLE, operation_type_code: '', location_id: '', asset_id: '', product_name: '', date_from: '', date_to: '' }
 const EMPTY_PAGE = { items: [], total: 0, page: 1, page_size: 20, pages: 0 }
 const CALIBRATION_TEMPLATE = [{ id: 1, columns: [
   { columnName: 'tank_name', interpolationRole: 'Reference', unit: '' },
@@ -32,65 +35,6 @@ const CALIBRATION_TEMPLATE = [{ id: 1, columns: [
 const Layouts = { tank_gauging_payload: TankGaugingLayout, multi_tank_payload: MultiTankBeforeAfterLayout,
   tanker_payload: TankerTruckLayout, shuttle_payload: ShuttleTrackingLayout, fso_payload: FSOTrackingLayout,
   flowmeter_payload: FlowmeterReadingLayout, stock_movement: StockMovementLayout, vessel_cycle: VesselCycleLayout }
-const human = key => String(key).replace(/([a-z])([A-Z])/g, '$1 $2').replaceAll('_', ' ')
-const valueText = v => v === null || v === undefined || v === '' ? '—' : typeof v === 'number' ? v.toLocaleString(undefined, { maximumFractionDigits: 10 }) : String(v)
-
-function SavedBlock({ value }) {
-  if (!value || typeof value !== 'object') return <span>{valueText(value)}</span>
-  return <dl className="entry-review-values">{Object.entries(value).map(([k,v]) => <div key={k} className={v && typeof v === 'object' ? 'full-width-field' : ''}>
-    <dt>{human(k)}</dt><dd>{v && typeof v === 'object' ? <SavedBlock value={v} /> : valueText(v)}</dd>
-  </div>)}</dl>
-}
-function Review({ ticket }) {
-  const p = ticket.payload || {}
-  if (ticket.payload_code === 'tanker_payload') return <TankerPayloadPreview entry={{ values: [{ fieldCode: 'tanker_payload', fieldValue: p }] }} />
-  return <div className="entry-snapshot"><Alert>Saved ticket snapshot. Quantities are not recalculated from a subsequently replaced chart or master.</Alert>
-    {Object.entries(p).map(([key, value]) => <details key={key} open={['inputs','calculated','seals'].includes(key)}><summary>{human(key)}</summary><SavedBlock value={value} /></details>)}
-  </div>
-}
-function WorkflowDialog({ ticket, action, onCancel, onDone }) {
-  const [remarks, setRemarks] = useState('')
-  const [reviewed, setReviewed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const reviewNeeded = ['submit','approve'].includes(action)
-  const run = async () => {
-    setBusy(true); setError('')
-    try { const saved = await transitionEntry(ticket.id, action, { version: ticket.version, remarks: remarks || null, review_confirmed: reviewed }); onDone(saved) }
-    catch (e) { setError(e.message) }
-    finally { setBusy(false) }
-  }
-  return <EntryDialog title={`${human(action)} ticket · ${ticket.ticket_number}`} footer={<>
-    <button className="btn btn-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
-    <button className={`btn ${action === 'cancel' || action === 'reject' ? 'btn-danger' : 'btn-primary'}`} onClick={run} disabled={busy || (reviewNeeded && !reviewed) || (action === 'reject' && !remarks.trim())}>{busy ? 'Working…' : human(action)}</button>
-  </>}>
-    {reviewNeeded && <Review ticket={ticket} />}
-    <label className="field"><span className="field-label">Remarks {action === 'reject' ? '(required)' : '(required for a seal mismatch)'}</span><textarea className="textarea" rows={3} value={remarks} onChange={e => setRemarks(e.target.value)} maxLength={2000} /></label>
-    {reviewNeeded && <label className="entry-review-check"><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} /> I have reviewed the saved readings, calculated quantities, route, seals, and cautions.</label>}
-    {error && <Alert tone="danger">{error}</Alert>}
-  </EntryDialog>
-}
-
-function TicketHistory({ ticket }) {
-  const [open, setOpen] = useState(false)
-  const [page, setPage] = useState(1)
-  const [size, setSize] = useState(20)
-  const [data, setData] = useState(EMPTY_PAGE)
-  const [error, setError] = useState('')
-  useEffect(() => {
-    if (!open) return
-    let active = true
-    apiGet(`/operation-entries/${ticket.id}/history${buildQuery({ page, page_size: size })}`).then(r => { if(active) setData(r) }).catch(e => { if(active) setError(e.message) })
-    logUiAction('Operation Entry', 'View Status History', { ticket: ticket.ticket_number, page })
-    return () => { active = false }
-  }, [open, page, size, ticket.id, ticket.version])
-  return <details className="card entry-history" onToggle={e => setOpen(e.currentTarget.open)}><summary>Ticket status history</summary>
-    {error && <Alert tone="danger">{error}</Alert>}
-    <div className="table-wrap"><table className="data-table"><thead><tr><th>Action</th><th>From</th><th>To</th><th>Actor</th><th>Remarks</th><th>Time</th></tr></thead><tbody>{data.items.map(h => <tr key={h.id}><td>{h.action}</td><td>{h.from_status || '—'}</td><td>{h.to_status}</td><td>{h.actor_name}</td><td>{h.remarks || '—'}</td><td>{h.created_at}</td></tr>)}</tbody></table></div>
-    <Pagination page={page} pageSize={size} pages={data.pages} total={data.total} onPageChange={setPage} onPageSizeChange={n => { setSize(n); setPage(1) }} />
-  </details>
-}
-
 function OperationEntryPage() {
   const { hasPermission } = usePermissions()
   const confirm = useConfirm()
@@ -121,7 +65,6 @@ function OperationEntryPage() {
   const [listBusy, setListBusy] = useState(false)
   const [advanced, setAdvanced] = useState(false)
   const [refresh, setRefresh] = useState(0)
-  const [workflow, setWorkflow] = useState(null)
   const [savePreview, setSavePreview] = useState(null)
   const [importing, setImporting] = useState(false)
   const layoutRef = useRef(null)
@@ -286,13 +229,12 @@ function OperationEntryPage() {
     setSeed(v => v+1); setDirty(false); setError('')
     if (ticket.linked_ticket_id) setSender(await linkedSender(ticket.linked_ticket_id))
   }
-  const openTicket = async (row, action = null) => {
+  const openTicket = async row => {
     setListError('')
     try {
-      if (dirty && !action && !await confirm({ title: 'Open ticket', message: 'Replace the unsaved form with this saved ticket?', confirmLabel: 'Open ticket' })) return
+      if (dirty && !await confirm({ title: 'Open ticket', message: 'Replace the unsaved form with this saved ticket?', confirmLabel: 'Open ticket' })) return
       const t = await getEntry(row.id)
-      if (action) setWorkflow({ action, ticket: t })
-      else { await hydrate(t); window.scrollTo({ top: 0 }); logUiAction('Operation Entry', 'Open Ticket', { ticket: t.ticket_number }) }
+      await hydrate(t); window.scrollTo({ top: 0 }); logUiAction('Operation Entry', 'Open Ticket', { ticket: t.ticket_number })
     } catch (e) { setListError(e.message) }
   }
   const receive = async id => {
@@ -406,24 +348,15 @@ function OperationEntryPage() {
     convoyNumber: sender.convoy_number, tankerAssetCode: sender.asset_code, primeMoverAssetCode: sender.payload.inputs.primeMoverNumber,
   } : null, [sender])
   const setFilter = (key, value) => { setFilters(f => ({ ...f, [key]: value })); setPage(1) }
-  const canReview = hasPermission('operation_reviews:create')
+  const canOpenRegister = hasPermission('operation_transactions:read')
   const rowActions = row => <div className="entry-row-actions">
-    <button type="button" className="btn btn-ghost btn-sm" onClick={() => openTicket(row)}>{['Draft','Rejected'].includes(row.status) && hasPermission('operation_entries:update') ? 'Edit' : 'View'}</button>
-    {['Draft','Rejected'].includes(row.status) && <>
-      {canReview && hasPermission('operation_submissions:create') && <button className="btn btn-secondary btn-sm" onClick={() => openTicket(row, 'submit')}>Submit</button>}
-      {hasPermission('operation_entries:delete') && <button className="btn btn-ghost btn-sm" onClick={() => openTicket(row, 'cancel')}>Cancel</button>}
-    </>}
-    {row.status === 'Submitted' && <>
-      {hasPermission('operation_submissions:delete') && <button className="btn btn-secondary btn-sm" onClick={() => openTicket(row, 'recall')}>Recall</button>}
-      {canReview && hasPermission('operation_approvals:create') && <button className="btn btn-secondary btn-sm" onClick={() => openTicket(row, 'approve')}>Approve</button>}
-      {hasPermission('operation_approvals:update') && <button className="btn btn-ghost btn-sm" onClick={() => openTicket(row, 'reject')}>Reject</button>}
-    </>}
-    {row.status === 'Approved' && !row.linked_ticket_id && ['BARGE_OPERATIONS','TANKER_OPERATIONS'].includes(row.operation_type_code) && (hasPermission('receiving_tickets:create') || hasPermission('operation_entries:create')) && <button className="btn btn-secondary btn-sm" onClick={() => receive(row.id)}>Receive</button>}
+    <button type="button" className="btn btn-ghost btn-sm" onClick={() => openTicket(row)}>{hasPermission('operation_entries:update') ? 'Edit' : 'View'}</button>
+    {canOpenRegister && <Link className="btn btn-ghost btn-sm" to={`/operation-transactions/${row.id}`} onClick={() => logUiAction('Operation Entry', 'Open In Transaction Register', { ticket: row.ticket_number })}>Workflow</Link>}
   </div>
   return <div className="page operation-entry">
-    <PageHead eyebrow="BUSINESS / OPERATION ENTRY" title="Operation Entry" description="Create operation tickets or edit Draft / Rejected tickets using the fixed OTMS module payloads."
+    <PageHead eyebrow="BUSINESS / OPERATION ENTRY" title="Operation Entry" description="Create operation tickets or edit Draft / Rejected tickets using the fixed OTMS module payloads. Submission and approval run in the Operation Transaction Register."
       actions={<><button className="btn btn-secondary" onClick={reset}>New ticket</button>{hasPermission('operation_entries:create') && <button className="btn btn-secondary" onClick={() => setImporting(true)}>Import CSV / XLSX</button>}</>} />
-    {!writable && !locked && <Alert>You have view-only access to this form. Creation, editing, review, submission and approval have separate permissions.</Alert>}
+    {!writable && !locked && <Alert>You have view-only access to this form. Creation and editing have separate permissions; review, submission and approval run in the Operation Transaction Register.</Alert>}
     <form onSubmit={prepareSave} className="entry-form" onBlurCapture={e => { if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) logUiAction('Operation Entry', 'Edit Field', { field: e.target.name || e.target.getAttribute('aria-label') || e.target.id }) }}>
       <fieldset disabled={!writable || busy} className="entry-header-grid">
         {form.linked_ticket_id && <div className="full-width-field info-box"><strong>Receiving Ticket</strong> · Linked to {sender?.ticket_number || form.linked_ticket_id}. Route, convoy, and asset are locked to the Approved sender; measure receiver dips and seals independently.</div>}
@@ -479,7 +412,7 @@ function OperationEntryPage() {
       <div className="entry-form-actions">
         {!locked && <button className="btn btn-primary" type="submit" disabled={!writable || busy || contextBusy || validating}>{busy ? 'Saving…' : validating ? 'Validating…' : saved ? 'Update Draft' : 'Save Draft'}</button>}
         {saved && <button className="btn btn-secondary" type="button" onClick={reset}>Close Edit</button>}
-        {saved && !dirty && !locked && canReview && hasPermission('operation_submissions:create') && <button type="button" className="btn btn-secondary" onClick={() => setWorkflow({ action: 'submit', ticket: saved })}>Review & Submit</button>}
+        {saved && !dirty && canOpenRegister && <Link className="btn btn-secondary" to={`/operation-transactions/${saved.id}`} onClick={() => logUiAction('Operation Entry', 'Open In Transaction Register', { ticket: saved.ticket_number })}>Open in Transaction Register</Link>}
         {saved && ['csv','xlsx','pdf'].map(format => <button key={format} type="button" className="btn btn-ghost" onClick={async () => {
           try { await apiDownload(`/operation-entries/${saved.id}/export?format=${format}`) } catch(e) { setError(e.message) }
         }}>Ticket {format.toUpperCase()}</button>)}
@@ -487,11 +420,11 @@ function OperationEntryPage() {
       </div>
     </form>
     <section className="card entry-register">
-      <header className="card-header"><div><h2 className="card-title">{filters.status === 'Draft,Rejected' ? 'Editable Operation Entries' : 'Operation Ticket Register'}</h2>
-        <p className="card-subtitle">Draft and Rejected tickets are editable. Submitted tickets must be recalled first. Approved and Cancelled tickets are locked.</p></div></header>
+      <header className="card-header"><div><h2 className="card-title">Editable Operation Entries</h2>
+        <p className="card-subtitle">Only Draft and Rejected tickets are listed here for editing. Submit, review, approve, reject, recall and cancel tickets in the Operation Transaction Register under Operation Tracking.</p></div></header>
       <div className="entry-list-toolbar">
         <label>Quick search<input placeholder="Ticket / asset / convoy / product…" value={filters.search} onChange={e => setFilter('search', e.target.value)} /></label>
-        <label>Status<select value={filters.status} onChange={e => setFilter('status', e.target.value)}><option value="Draft,Rejected">Editable: Draft / Rejected</option><option value="">All tickets</option>{['Draft','Rejected','Submitted','Approved','Cancelled'].map(s => <option key={s}>{s}</option>)}</select></label>
+        <label>Status<select value={filters.status} onChange={e => setFilter('status', e.target.value || EDITABLE)}><option value={EDITABLE}>Draft / Rejected</option><option value="Draft">Draft</option><option value="Rejected">Rejected</option></select></label>
         <button className="btn btn-secondary" onClick={() => setAdvanced(v => !v)} aria-expanded={advanced}>Advanced filters</button>
         <button className="btn btn-ghost" onClick={() => { setFilters(FILTERS); setPage(1) }}>Reset filters</button>
         {['csv','xlsx','pdf'].map(format => <button key={format} className="btn btn-secondary" onClick={async () => { try { await exportEntries(format, filters) } catch (e) { setListError(e.message) } }}>Export {format.toUpperCase()}</button>)}
@@ -503,7 +436,7 @@ function OperationEntryPage() {
         <label>Product contains<input value={filters.product_name} onChange={e => setFilter('product_name', e.target.value)} /></label>
       </div>}
       <div className="entry-date-filters"><strong>Operation date</strong><label>From<input type="date" value={filters.date_from} onChange={e => setFilter('date_from', e.target.value)} /></label><label>To<input type="date" value={filters.date_to} onChange={e => setFilter('date_to', e.target.value)} /></label></div>
-      <div className="entry-active-filters">{Object.entries(filters).filter(([k,v]) => v && !(k === 'status' && v === 'Draft,Rejected')).map(([k,v]) => <button className="tag" key={k} onClick={() => setFilter(k, '')} aria-label={`Remove ${human(k)} filter`}>{human(k)}: {v} ×</button>)}</div>
+      <div className="entry-active-filters">{Object.entries(filters).filter(([k,v]) => v && !(k === 'status' && v === EDITABLE)).map(([k,v]) => <button className="tag" key={k} onClick={() => setFilter(k, k === 'status' ? EDITABLE : '')} aria-label={`Remove ${human(k)} filter`}>{human(k)}: {v} ×</button>)}</div>
       {listError && <Alert tone="danger">{listError}</Alert>}
       <div className="table-wrap"><table className="data-table entry-ticket-table" aria-label="Saved operation tickets" aria-busy={listBusy}><thead><tr>{['Ticket / Date','Operation / Layout','Primary Asset','Sender','Product','Status','Actions'].map(h => <th scope="col" key={h}>{h}</th>)}</tr></thead>
         <tbody>{data.items.map(row => <tr key={row.id}>
@@ -522,7 +455,6 @@ function OperationEntryPage() {
       <button className="btn btn-secondary" disabled={busy} onClick={() => { setSavePreview(null); setError('') }}>Cancel</button>
       <button className="btn btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : saved ? 'Update Draft' : 'Save Draft'}</button>
     </>}><p>Confirm {layoutDefinition?.entry_layout_type} for <strong>{selectedAsset?.assetCode}</strong> on <strong>{form.operation_date}</strong>. The API validates and recalculates the fixed payload before saving.</p>{error && <Alert tone="danger">{error}</Alert>}</EntryDialog>}
-    {workflow && <WorkflowDialog {...workflow} onCancel={() => setWorkflow(null)} onDone={ticket => { setWorkflow(null); setRefresh(v => v+1); if (saved?.id === ticket.id) hydrate(ticket); setSuccess(`${ticket.ticket_number}: ${ticket.status}`) }} />}
     {importing && <EntryImport definitions={definitions} onCancel={() => setImporting(false)} onImported={() => { setImporting(false); setRefresh(v => v+1) }} />}
   </div>
 }
