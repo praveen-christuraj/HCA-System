@@ -107,6 +107,13 @@ RESOURCE_PERMISSION_DEFINITIONS = [
         "actions": (READ, CREATE, UPDATE, DELETE),
     },
     {
+        "resource": "asset_assignments",
+        "module_name": "Asset Assignment",
+        "category": "Master Data Management",
+        "label": "asset assignments to users, locations and external parties",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
         # Hard-coded operation types and categories. Read-only: the catalogue
         # is fixed by the system, so there is no create, update or delete.
         "resource": "operation_types",
@@ -122,6 +129,34 @@ RESOURCE_PERMISSION_DEFINITIONS = [
         "module_name": "Operation Master",
         "category": "Configurations",
         "label": "location operations",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
+        "resource": "location_operation_availability",
+        "module_name": "Location Operation Availability",
+        "category": "Configurations",
+        "label": "location operation availability mappings",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
+        "resource": "location_accounting_day_settings",
+        "module_name": "Location Accounting Day Setting",
+        "category": "Configurations",
+        "label": "location accounting day start/end settings",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
+        "resource": "company_report_profiles",
+        "module_name": "Company Report Profiles",
+        "category": "Configurations",
+        "label": "company report branding and header/footer profiles",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
+        "resource": "material_balance_templates",
+        "module_name": "Material Balance Template Master",
+        "category": "Configurations",
+        "label": "material balance report templates and columns",
         "actions": (READ, CREATE, UPDATE, DELETE),
     },
     {
@@ -170,6 +205,31 @@ RESOURCE_PERMISSION_DEFINITIONS = [
         "category": "Business Modules", "label": "operation voyages",
         "actions": (READ, UPDATE,),
     },
+    {
+        "resource": "flowmeter_records", "module_name": "Flowmeter Records",
+        "category": "Business Modules", "label": "standalone flowmeter record entries",
+        "actions": (READ, CREATE, UPDATE, DELETE,),
+    },
+    {
+        "resource": "movement_mappings", "module_name": "Movement Mapping",
+        "category": "Business Modules", "label": "sender and receiver movement mappings",
+        "actions": (READ, CREATE, UPDATE, DELETE,),
+    },
+    {
+        "resource": "operation_tasks", "module_name": "Operation Task Manager",
+        "category": "Business Modules", "label": "operation approval and correction tasks",
+        "actions": (READ, CREATE, UPDATE,),
+    },
+    {
+        "resource": "correction_requests", "module_name": "Approved Transaction Corrections",
+        "category": "Business Modules", "label": "approved transaction correction and revoke requests",
+        "actions": (READ, CREATE, UPDATE,),
+    },
+    {
+        "resource": "export_operations", "module_name": "Export Operations",
+        "category": "Export Operations", "label": "export permits, blocks, entities, consignees and transactions",
+        "actions": (READ, CREATE, UPDATE, DELETE,),
+    },
     # Operation Tracking (OTMS tracking modules). Status workflow actions on a
     # ticket keep their existing capabilities (operation_submissions /
     # operation_reviews / operation_approvals / operation_entries:delete); these
@@ -215,6 +275,20 @@ RESOURCE_PERMISSION_DEFINITIONS = [
         "actions": (CREATE, DELETE,),
     },
     {
+        "resource": "reports",
+        "module_name": "Operational Reports",
+        "category": "Reporting",
+        "label": "tank operation summary, out-turn summary, material balance and stock ledger reports",
+        "actions": (READ, UPDATE),
+    },
+    {
+        "resource": "backup_recovery",
+        "module_name": "Backup & Recovery",
+        "category": "Back-up & Recovery",
+        "label": "database backups, restore requests and restore validations",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
         "resource": "audit",
         "module_name": "Audit Trail",
         "category": "Auditing Modules",
@@ -233,6 +307,20 @@ RESOURCE_PERMISSION_DEFINITIONS = [
         "module_name": "System Administration",
         "category": "System",
         "label": "system health and seed status",
+        "actions": (READ,),
+    },
+    {
+        "resource": "system_notifications",
+        "module_name": "System Notifications",
+        "category": "System",
+        "label": "system-wide notifications, banners and delivery receipts",
+        "actions": (READ, CREATE, UPDATE, DELETE),
+    },
+    {
+        "resource": "database_browser",
+        "module_name": "Database Browser",
+        "category": "System",
+        "label": "the read-only database table browser",
         "actions": (READ,),
     },
 ]

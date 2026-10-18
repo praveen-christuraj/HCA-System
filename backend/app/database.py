@@ -43,7 +43,15 @@ def get_db():
 
 
 def init_db() -> None:
-    """Create missing tables. Importing models registers the metadata."""
+    """Create missing tables and apply idempotent column migrations."""
+    from sqlalchemy import inspect, text
     from app import models  # noqa: F401  (side effect: register models)
 
     Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    if "users" in inspector.get_table_names():
+        user_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "all_locations_access" not in user_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN all_locations_access BOOLEAN NOT NULL DEFAULT 0"))
+

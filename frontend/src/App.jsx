@@ -22,6 +22,50 @@ import Roles from './pages/Roles'
 import UserRoles from './pages/UserRoles'
 import Users from './pages/Users'
 import {
+  PermissionMasterPage,
+  UserLocationAssignmentPage,
+  AccessSummaryPage,
+  ProfileSecurityPage,
+} from './pages/UserAccessModules'
+import {
+  AssetAssignmentPage,
+  AssetAssignmentSummaryPage,
+} from './pages/AssetAssignmentModules'
+import {
+  LocationOperationAvailabilityPage,
+  LocationOperationSummaryPage,
+  LocationAccountingDaySettingPage,
+  CompanyReportProfileMasterPage,
+  MaterialBalanceTemplateMasterPage,
+} from './pages/ConfigurationModules'
+import {
+  FlowmeterRecordEntryPage,
+  MovementMappingPage,
+  OperationTaskManagerPage,
+  CorrectionRequestsPage,
+} from './pages/BusinessExtendedModules'
+import {
+  ExportDashboardPage,
+  ExportTransactionsPage,
+  ExportReportsPage,
+  ExportPermitsPage,
+  ExportLocationsPage,
+  ExportEntitiesPage,
+  ExportBlocksPage,
+  ExportConsigneesPage,
+  ExportSettingsPage,
+} from './pages/ExportOperationsModules'
+import {
+  TankOperationSummaryPage,
+  OutTurnSummaryPage,
+  MaterialBalanceReportPage,
+} from './pages/ReportModules'
+import {
+  BackupRecoveryPage,
+  SystemNotificationMasterPage,
+  DatabaseBrowserPage,
+} from './pages/BackupAndSystemModules'
+import {
   flushPendingUiEvents,
   logUiAction,
   setActionLogUser,
@@ -104,7 +148,7 @@ function App() {
                 </PermissionGuard>
               }
             />
-              <Route
+            <Route
               path="/users"
               element={
                 <PermissionGuard loggedInUser={loggedInUser} requiredPermission="users:read">
@@ -161,10 +205,58 @@ function App() {
               }
             />
             <Route
+              path="/permissions"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="permissions:read">
+                  <PermissionMasterPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/user-locations"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} allOfPermissions={["users:read", "locations:read"]}>
+                  <UserLocationAssignmentPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/access-summary"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} allOfPermissions={["users:read", "roles:read", "permissions:read", "locations:read"]}>
+                  <AccessSummaryPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/profile-security"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="profile:read">
+                  <ProfileSecurityPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
               path="/asset-calibration"
               element={
                 <PermissionGuard loggedInUser={loggedInUser} requiredPermission="assets:read">
                   <AssetCalibration />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/asset-assignments"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="asset_assignments:read">
+                  <AssetAssignmentPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/asset-assignment-summary"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="asset_assignments:read">
+                  <AssetAssignmentSummaryPage />
                 </PermissionGuard>
               }
             />
@@ -193,6 +285,78 @@ function App() {
               }
             />
             <Route
+              path="/location-operation-availability"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="location_operation_availability:read">
+                  <LocationOperationAvailabilityPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/location-operation-summary"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="location_operation_availability:read">
+                  <LocationOperationSummaryPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/location-accounting-day-settings"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="location_accounting_day_settings:read">
+                  <LocationAccountingDaySettingPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/company-report-profiles"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="company_report_profiles:read">
+                  <CompanyReportProfileMasterPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/material-balance-template-master"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="material_balance_templates:read">
+                  <MaterialBalanceTemplateMasterPage />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/table11-factors"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_references:read">
+                  <OperationReferences defaultKind="table11" />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/flowmeter-configs"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_references:read">
+                  <OperationReferences defaultKind="meters" />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/barge-seal-master"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_references:read">
+                  <OperationReferences defaultKind="seals" />
+                </PermissionGuard>
+              }
+            />
+            <Route
+              path="/operation-workflow-policies"
+              element={
+                <PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_policies:read">
+                  <OperationReferences defaultKind="policies" />
+                </PermissionGuard>
+              }
+            />
+            <Route
               path="/assets"
               element={
                 <PermissionGuard loggedInUser={loggedInUser} requiredPermission="assets:read">
@@ -209,6 +373,9 @@ function App() {
               }
             />
             <Route path="/operation-entry" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_entries:read"><OperationEntry /></PermissionGuard>} />
+            <Route path="/flowmeter-records" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="flowmeter_records:read"><FlowmeterRecordEntryPage /></PermissionGuard>} />
+            <Route path="/movement-mappings" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="movement_mappings:read"><MovementMappingPage /></PermissionGuard>} />
+            <Route path="/operation-tasks" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_tasks:read"><OperationTaskManagerPage /></PermissionGuard>} />
             <Route path="/operation-references" element={<PermissionGuard loggedInUser={loggedInUser} anyOfPermissions={['operation_references:read','operation_policies:read','operation_voyages:read']}><OperationReferences /></PermissionGuard>} />
             <Route path="/operation-transactions" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_transactions:read"><OperationTransactionRegister /></PermissionGuard>} />
             <Route path="/operation-transactions/:id" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_transactions:read"><OperationTransactionDetail /></PermissionGuard>} />
@@ -217,6 +384,26 @@ function App() {
             <Route path="/shuttle-tracking" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="shuttle_tracking:read"><ShuttleTracking /></PermissionGuard>} />
             <Route path="/fso-tracking" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="fso_tracking:read"><FSOTracking /></PermissionGuard>} />
             <Route path="/tanker-transaction-report" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="tanker_transaction_reports:read"><TankerTransactionReport /></PermissionGuard>} />
+            <Route path="/correction-requests" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="correction_requests:read"><CorrectionRequestsPage /></PermissionGuard>} />
+
+            <Route path="/export-operations/dashboard" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="export_operations:read"><ExportDashboardPage /></PermissionGuard>} />
+            <Route path="/export-operations/transactions" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="export_operations:read"><ExportTransactionsPage /></PermissionGuard>} />
+            <Route path="/export-operations/reports" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="export_operations:read"><ExportReportsPage /></PermissionGuard>} />
+            <Route path="/export-operations/permits" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="export_operations:read"><ExportPermitsPage /></PermissionGuard>} />
+            <Route path="/export-operations/locations" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="export_operations:read"><ExportLocationsPage /></PermissionGuard>} />
+            <Route path="/export-operations/entities" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="export_operations:read"><ExportEntitiesPage /></PermissionGuard>} />
+            <Route path="/export-operations/blocks" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="export_operations:read"><ExportBlocksPage /></PermissionGuard>} />
+            <Route path="/export-operations/consignees" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="export_operations:read"><ExportConsigneesPage /></PermissionGuard>} />
+            <Route path="/export-operations/settings" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="export_operations:read"><ExportSettingsPage /></PermissionGuard>} />
+
+            <Route path="/tank-operation-summary" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="reports:read"><TankOperationSummaryPage /></PermissionGuard>} />
+            <Route path="/out-turn-summary" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="reports:read"><OutTurnSummaryPage /></PermissionGuard>} />
+            <Route path="/material-balance-report" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="reports:read"><MaterialBalanceReportPage /></PermissionGuard>} />
+
+            <Route path="/backup-recovery" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="backup_recovery:read"><BackupRecoveryPage /></PermissionGuard>} />
+            <Route path="/system-notifications" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="system_notifications:read"><SystemNotificationMasterPage /></PermissionGuard>} />
+            <Route path="/database-browser" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="database_browser:read"><DatabaseBrowserPage /></PermissionGuard>} />
+
             <Route path="/modules/:moduleKey" element={<ModuleDashboard />} />
             <Route path="*" element={<NotFound />} />
           </Routes></Suspense>

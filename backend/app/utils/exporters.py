@@ -102,12 +102,16 @@ def pdf_response(
     title: str,
     headers: list[str],
     rows: list[list],
-    widths: list[int],
+    widths: list[int] | None = None,
     filters_summary: str = "no filters",
     orientation: str = "L",
     subtitle: str = "",
 ) -> Response:
     from fpdf import FPDF
+
+    if not widths:
+        col_w = max(16, int(270 / max(len(headers), 1)))
+        widths = [col_w] * len(headers)
 
     pdf = FPDF(orientation=orientation, unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=12)

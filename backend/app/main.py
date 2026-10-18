@@ -21,11 +21,16 @@ from app.config import ALLOWED_ORIGINS, APP_NAME, APP_VERSION, BOOTSTRAP_ADMIN_O
 from app.database import SessionLocal, init_db
 from app.middleware import AuditMiddleware, SecurityHeadersMiddleware
 from app.routers import (
+    asset_assignments,
     asset_calibration,
     assets,
     audit_logs,
     auth,
+    backup_recovery,
+    business_extended,
+    configurations_extended,
     dashboard,
+    export_operations,
     locations,
     operation_entries,
     operation_entry_import,
@@ -36,9 +41,12 @@ from app.routers import (
     permission_presets,
     permissions,
     prime_mover_tanker_links,
+    reports,
     role_locations,
     roles,
     system,
+    system_admin_extended,
+    user_locations,
     user_roles,
     users,
 )
@@ -112,6 +120,14 @@ app.include_router(operation_entry_import.router, prefix=API_PREFIX)
 app.include_router(operation_references.router, prefix=API_PREFIX)
 app.include_router(operation_tracking.router, prefix=API_PREFIX)
 app.include_router(user_roles.router, prefix=API_PREFIX)
+app.include_router(user_locations.router, prefix=API_PREFIX)
+app.include_router(asset_assignments.router, prefix=API_PREFIX)
+app.include_router(configurations_extended.router, prefix=API_PREFIX)
+app.include_router(business_extended.router, prefix=API_PREFIX)
+app.include_router(export_operations.router, prefix=API_PREFIX)
+app.include_router(reports.router, prefix=API_PREFIX)
+app.include_router(backup_recovery.router, prefix=API_PREFIX)
+app.include_router(system_admin_extended.router, prefix=API_PREFIX)
 app.include_router(permissions.router, prefix=API_PREFIX)
 app.include_router(permission_presets.router, prefix=API_PREFIX)
 app.include_router(audit_logs.router, prefix=API_PREFIX)

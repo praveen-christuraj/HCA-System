@@ -12,7 +12,7 @@ from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
-from app.models import (Table11Factor, FlowmeterConfig, BargeSealMaster, OperationWorkflowPolicy,
+from app.models import (Table11Factor, FlowmeterConfig, FlowmeterConfigHistory, BargeSealMaster, OperationWorkflowPolicy,
     OperationWorkflowPolicyRole, OperationWorkflowPolicyUser, OperationVoyage, OperationEntry,
     Role, User, Asset, AssetTank, Location)
 from app.dependencies.permissions import require_any_permission, get_user_location_ids, is_admin_user
@@ -209,11 +209,30 @@ def listing(kind: str, search: str = "", asset_id: int | None = None, location_i
     return result
 
 
+def _record_meter_history(db, row: FlowmeterConfig, change_type: str, user: User, old_factor: float | None = None, old_status: str | None = None):
+    db.add(
+        FlowmeterConfigHistory(
+            config_id=row.id,
+            action=change_type,
+            changed_by_user_id=user.id,
+            changed_by=user.full_name or user.username,
+            old_meter_factor=old_factor,
+            new_meter_factor=row.meter_factor,
+            old_status=old_status,
+            new_status=row.status,
+            change_summary=f"{change_type}: {row.stream_name} / {row.meter_label} (factor={row.meter_factor})",
+            changed_at=utcnow(),
+        )
+    )
+
+
 @router.post("/{kind}", status_code=201)
 def create(kind: str, data: dict, request: Request, db=Depends(get_db), user=Depends(read_access)):
     require_capability(db, user, _resource(kind) + ":create")
     body = _validate(db, user, kind, data)
     row = _write(db, kind, body); db.flush()
+    if kind == "meters":
+        _record_meter_history(db, row, "Created", user)
     _audit(db, request, user, kind, "Create", f"{kind} #{row.id}: " + "; ".join(f"{k}={v}" for k,v in data.items()))
     _commit(db, request); db.refresh(row)
     return _serialize(kind, row)
@@ -244,7 +263,11 @@ def update(kind: str, row_id: int, data: dict, request: Request, db=Depends(get_
         if not row: raise HTTPException(404, "Reference not found")
         body = _validate(db, user, kind, data, row_id)
         before = "; ".join(f"{k}={v}" for k, v in _serialize(kind, row).items())
+        old_factor = getattr(row, "meter_factor", None)
+        old_status = getattr(row, "status", None)
         _write(db, kind, body, row)
+        if kind == "meters":
+            _record_meter_history(db, row, "Updated", user, old_factor=old_factor, old_status=old_status)
         _audit(db, request, user, kind, "Update", f"Before: {before}; After: " + "; ".join(f"{k}={v}" for k,v in data.items()))
     _commit(db, request); db.refresh(row)
     return _serialize(kind, row)
@@ -257,8 +280,12 @@ def delete(kind: str, row_id: int, request: Request, db=Depends(get_db), user=De
     model = KINDS[kind][0]
     row = _query(db, user, kind).filter(model.id == row_id).first()
     if not row: raise HTTPException(404, "Reference not found")
+    old_status = getattr(row, "status", None)
     if kind == "table11": db.delete(row)
-    else: row.status = "Inactive"
+    else:
+        row.status = "Inactive"
+        if kind == "meters":
+            _record_meter_history(db, row, "Deactivated", user, old_factor=row.meter_factor, old_status=old_status)
     _audit(db, request, user, kind, "Delete" if kind == "table11" else "Deactivate", f"{kind} #{row_id}")
     _commit(db, request)
     return {"ok": True}

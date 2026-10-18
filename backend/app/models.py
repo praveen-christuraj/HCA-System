@@ -17,6 +17,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -52,6 +53,7 @@ class User(Base):
     totp_secret = Column(Text, nullable=True)
     totp_confirmed_at = Column(DateTime, nullable=True)
     force_2fa = Column(Boolean, nullable=False, default=False)
+    all_locations_access = Column(Boolean, nullable=False, default=False)
 
     status = Column(String(20), nullable=False, default="Active", index=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
@@ -1525,3 +1527,774 @@ class TankerReceiptAcknowledgement(Base):
     receiver_location = relationship("Location")
     acknowledged_by = relationship("User", foreign_keys=[acknowledged_by_user_id])
     closed_by = relationship("User", foreign_keys=[closed_by_user_id])
+
+
+# ---------------------------------------------------------------------------
+# User Location Assignment (direct user-location scope alongside RoleLocation)
+# ---------------------------------------------------------------------------
+class UserLocation(Base):
+    __tablename__ = "user_locations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "location_id", name="uq_user_locations_pair"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    user = relationship("User", backref="user_location_assignments")
+    location = relationship("Location")
+
+
+# ---------------------------------------------------------------------------
+# Asset Assignment Master
+# ---------------------------------------------------------------------------
+class AssetAssignment(Base):
+    __tablename__ = "asset_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    asset_code = Column(String(50), nullable=False, index=True)
+    asset_scope = Column(String(30), nullable=False)
+    assignment_location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False, index=True)
+    assignment_location_code = Column(String(50), nullable=False, index=True)
+    assigned_to_type = Column(String(30), nullable=False)  # User | Location | External
+    assigned_to = Column(String(150), nullable=False)
+    assignment_date = Column(Date, nullable=False)
+    return_date = Column(Date, nullable=True)
+    remarks = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    asset = relationship("Asset")
+    assignment_location = relationship("Location")
+
+
+# ---------------------------------------------------------------------------
+# Configurations: Location Operation Availability, Accounting Day, Report Profile, Material Balance
+# ---------------------------------------------------------------------------
+class LocationOperationAvailability(Base):
+    __tablename__ = "location_operation_availability"
+    __table_args__ = (
+        UniqueConstraint("location_id", "operation_type_code", name="uq_loc_op_avail_pair"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True)
+    location_code = Column(String(50), nullable=False, index=True)
+    operation_type_code = Column(String(50), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    remarks = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    location = relationship("Location")
+
+
+class LocationAccountingDaySetting(Base):
+    __tablename__ = "location_accounting_day_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True)
+    location_code = Column(String(50), nullable=False, index=True)
+    day_start_time = Column(Time, nullable=False)
+    day_end_time = Column(Time, nullable=False)
+    effective_from = Column(Date, nullable=False)
+    effective_to = Column(Date, nullable=True)
+    timezone_name = Column(String(100), nullable=False, default="Africa/Lagos")
+    description = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    location = relationship("Location")
+
+
+class CompanyReportProfile(Base):
+    __tablename__ = "company_report_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_code = Column(String(50), nullable=False, unique=True, index=True)
+    company_name = Column(String(200), nullable=False)
+    company_short_name = Column(String(100), nullable=True)
+    report_header_line_1 = Column(String(250), nullable=True)
+    report_header_line_2 = Column(String(250), nullable=True)
+    address_line = Column(String(300), nullable=True)
+    email = Column(String(150), nullable=True)
+    phone = Column(String(80), nullable=True)
+    website = Column(String(200), nullable=True)
+    tax_registration_number = Column(String(100), nullable=True)
+    logo_url = Column(Text, nullable=True)
+    primary_color = Column(String(30), nullable=False, default="#0B3B66")
+    accent_color = Column(String(30), nullable=False, default="#1F5F99")
+    footer_text = Column(String(300), nullable=True)
+    prepared_by_label = Column(String(100), nullable=False, default="Prepared By")
+    checked_by_label = Column(String(100), nullable=False, default="Checked By")
+    approved_by_label = Column(String(100), nullable=False, default="Approved By")
+    show_signature_block = Column(Boolean, nullable=False, default=True)
+    show_generated_timestamp = Column(Boolean, nullable=False, default=True)
+    show_page_number = Column(Boolean, nullable=False, default=True)
+    is_default = Column(Boolean, nullable=False, default=False)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class MaterialBalanceTemplate(Base):
+    __tablename__ = "material_balance_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    template_name = Column(String(150), nullable=False)
+    template_code = Column(String(80), nullable=False, unique=True, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True, index=True)
+    location_code = Column(String(50), nullable=False, index=True)
+    basis = Column(String(20), nullable=False, default="NSV")
+    reporting_unit = Column(String(20), nullable=False, default="BBL")
+    auto_carry_opening_stock = Column(Boolean, nullable=False, default=True)
+    opening_operation_code = Column(String(80), nullable=False, default="OPENING_STOCK")
+    closing_operation_code = Column(String(80), nullable=False, default="CLOSING_STOCK")
+    is_default = Column(Boolean, nullable=False, default=False)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    location = relationship("Location")
+    columns = relationship(
+        "MaterialBalanceTemplateColumn",
+        back_populates="template",
+        cascade="all, delete-orphan",
+        order_by="MaterialBalanceTemplateColumn.display_order",
+    )
+
+
+class MaterialBalanceTemplateColumn(Base):
+    __tablename__ = "material_balance_template_columns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    template_id = Column(Integer, ForeignKey("material_balance_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    column_code = Column(String(80), nullable=False)
+    column_label = Column(String(150), nullable=False)
+    column_group = Column(String(80), nullable=False, default="MOVEMENTS")
+    column_type = Column(String(40), nullable=False)
+    unit = Column(String(30), nullable=True)
+    display_order = Column(Integer, nullable=False, default=1)
+    source_metric = Column(String(30), nullable=False, default="NSV")
+    direction_filter = Column(String(20), nullable=True)
+    category_filter = Column(String(40), nullable=True)
+    sign_multiplier = Column(Integer, nullable=False, default=1)
+    formula_expression = Column(String(500), nullable=True)
+    visible = Column(Boolean, nullable=False, default=True)
+    is_system_column = Column(Boolean, nullable=False, default=False)
+    status = Column(String(20), nullable=False, default="Active")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    template = relationship("MaterialBalanceTemplate", back_populates="columns")
+    operation_mappings = relationship(
+        "MaterialBalanceTemplateColumnOperation",
+        back_populates="column",
+        cascade="all, delete-orphan",
+    )
+
+
+class MaterialBalanceTemplateColumnOperation(Base):
+    __tablename__ = "material_balance_template_column_operations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    column_id = Column(Integer, ForeignKey("material_balance_template_columns.id", ondelete="CASCADE"), nullable=False, index=True)
+    operation_code = Column(String(80), nullable=False)
+    mapping_mode = Column(String(20), nullable=False, default="INCLUDE")  # INCLUDE | EXCLUDE
+
+    column = relationship("MaterialBalanceTemplateColumn", back_populates="operation_mappings")
+
+
+class OutTurnSummaryConfig(Base):
+    __tablename__ = "out_turn_summary_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="CASCADE"), nullable=True, index=True)
+    location_code = Column(String(50), nullable=False, unique=True, index=True)
+    status = Column(String(20), nullable=False, default="Active")
+    updated_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    columns = relationship(
+        "OutTurnSummaryConfigColumn",
+        back_populates="config",
+        cascade="all, delete-orphan",
+        order_by="OutTurnSummaryConfigColumn.sort_order",
+    )
+
+
+class OutTurnSummaryConfigColumn(Base):
+    __tablename__ = "out_turn_summary_config_columns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    config_id = Column(Integer, ForeignKey("out_turn_summary_configs.id", ondelete="CASCADE"), nullable=False, index=True)
+    column_key = Column(String(80), nullable=False)
+    operation_code = Column(String(80), nullable=False)
+    column_label = Column(String(150), nullable=False)
+    sign = Column(String(10), nullable=False, default="+")
+    visible = Column(Boolean, nullable=False, default=True)
+    sort_order = Column(Integer, nullable=False, default=1)
+
+    config = relationship("OutTurnSummaryConfig", back_populates="columns")
+
+
+# ---------------------------------------------------------------------------
+# Flowmeter History & Standalone Records, Movement Mapping, Operation Tasks, Corrections
+# ---------------------------------------------------------------------------
+class FlowmeterConfigHistory(Base):
+    __tablename__ = "flowmeter_config_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    config_id = Column(Integer, ForeignKey("flowmeter_configs.id", ondelete="CASCADE"), nullable=False, index=True)
+    action = Column(String(40), nullable=False)
+    changed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    changed_by = Column(String(150), nullable=True)
+    old_meter_factor = Column(Numeric(18, 6), nullable=True)
+    new_meter_factor = Column(Numeric(18, 6), nullable=True)
+    old_status = Column(String(30), nullable=True)
+    new_status = Column(String(30), nullable=True)
+    change_summary = Column(Text, nullable=True)
+    changed_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class FlowmeterRecord(Base):
+    __tablename__ = "flowmeter_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    record_number = Column(String(60), nullable=False, unique=True, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False, index=True)
+    location_code = Column(String(50), nullable=False, index=True)
+    flowmeter_asset_id = Column(Integer, ForeignKey("assets.id", ondelete="RESTRICT"), nullable=False, index=True)
+    flowmeter_asset_code = Column(String(50), nullable=False, index=True)
+    stream_name = Column(String(150), nullable=False)
+    meter_label = Column(String(150), nullable=False)
+    record_date = Column(Date, nullable=False, index=True)
+    start_time = Column(String(20), nullable=True)
+    end_time = Column(String(20), nullable=True)
+    opening_reading = Column(Numeric(18, 4), nullable=False, default=0)
+    closing_reading = Column(Numeric(18, 4), nullable=False, default=0)
+    gross_volume = Column(Numeric(18, 4), nullable=False, default=0)
+    meter_factor = Column(Numeric(18, 6), nullable=False, default=1)
+    ctl = Column(Numeric(18, 6), nullable=False, default=1)
+    cpl = Column(Numeric(18, 6), nullable=False, default=1)
+    bsw_pct = Column(Numeric(18, 4), nullable=False, default=0)
+    gsv_bbl = Column(Numeric(18, 4), nullable=False, default=0)
+    bsw_bbl = Column(Numeric(18, 4), nullable=False, default=0)
+    nsv_bbl = Column(Numeric(18, 4), nullable=False, default=0)
+    mt = Column(Numeric(18, 4), nullable=False, default=0)
+    lt = Column(Numeric(18, 4), nullable=False, default=0)
+    temperature_deg = Column(Numeric(18, 4), nullable=True)
+    pressure_psig = Column(Numeric(18, 4), nullable=True)
+    api60 = Column(Numeric(18, 4), nullable=True)
+    remarks = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Approved", index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    location = relationship("Location")
+    flowmeter_asset = relationship("Asset")
+    created_by = relationship("User")
+
+
+class MovementMapping(Base):
+    __tablename__ = "movement_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mapping_number = Column(String(60), nullable=False, unique=True, index=True)
+    mapping_type = Column(String(40), nullable=False, default="TANK_TO_BARGE")
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True, index=True)
+    location_code = Column(String(50), nullable=False, index=True)
+    mapping_date = Column(Date, nullable=False, index=True)
+    sender_total_gov = Column(Numeric(18, 4), nullable=False, default=0)
+    sender_total_gsv = Column(Numeric(18, 4), nullable=False, default=0)
+    sender_total_nsv = Column(Numeric(18, 4), nullable=False, default=0)
+    receiver_total_gov = Column(Numeric(18, 4), nullable=False, default=0)
+    receiver_total_gsv = Column(Numeric(18, 4), nullable=False, default=0)
+    receiver_total_nsv = Column(Numeric(18, 4), nullable=False, default=0)
+    variance_gov = Column(Numeric(18, 4), nullable=False, default=0)
+    variance_gsv = Column(Numeric(18, 4), nullable=False, default=0)
+    variance_nsv = Column(Numeric(18, 4), nullable=False, default=0)
+    variance_nsv_pct = Column(Numeric(18, 4), nullable=False, default=0)
+    remarks = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Open", index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(String(150), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    items = relationship("MovementMappingItem", back_populates="mapping", cascade="all, delete-orphan")
+
+
+class MovementMappingItem(Base):
+    __tablename__ = "movement_mapping_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mapping_id = Column(Integer, ForeignKey("movement_mappings.id", ondelete="CASCADE"), nullable=False, index=True)
+    entry_id = Column(Integer, ForeignKey("operation_entries.id", ondelete="RESTRICT"), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # SENDER | RECEIVER
+    allocated_gov = Column(Numeric(18, 4), nullable=True)
+    allocated_gsv = Column(Numeric(18, 4), nullable=True)
+    allocated_nsv = Column(Numeric(18, 4), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    mapping = relationship("MovementMapping", back_populates="items")
+    entry = relationship("OperationEntry")
+
+
+class OperationTask(Base):
+    __tablename__ = "operation_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_number = Column(String(60), nullable=False, unique=True, index=True)
+    task_type = Column(String(60), nullable=False, index=True)
+    entry_id = Column(Integer, ForeignKey("operation_entries.id", ondelete="CASCADE"), nullable=True, index=True)
+    ticket_number = Column(String(80), nullable=True, index=True)
+    operation_code = Column(String(80), nullable=True)
+    operation_type_code = Column(String(50), nullable=True, index=True)
+    asset_type_code = Column(String(50), nullable=True)
+    primary_asset_code = Column(String(50), nullable=True)
+    location_id = Column(Integer, ForeignKey("locations.id", ondelete="SET NULL"), nullable=True, index=True)
+    location_code = Column(String(50), nullable=True, index=True)
+    raised_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    assigned_policy_id = Column(Integer, ForeignKey("operation_workflow_policies.id", ondelete="SET NULL"), nullable=True)
+    status = Column(String(30), nullable=False, default="Pending", index=True)
+    priority = Column(String(20), nullable=False, default="Normal")
+    due_at = Column(DateTime, nullable=True)
+    taken_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    taken_at = Column(DateTime, nullable=True)
+    acted_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    acted_at = Column(DateTime, nullable=True)
+    action_taken = Column(String(60), nullable=True)
+    remarks = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    entry = relationship("OperationEntry")
+    assigned_roles = relationship("OperationTaskRole", back_populates="task", cascade="all, delete-orphan")
+    assigned_users = relationship("OperationTaskUser", back_populates="task", cascade="all, delete-orphan")
+    events = relationship(
+        "OperationTaskEvent",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="OperationTaskEvent.id",
+    )
+
+
+class OperationTaskRole(Base):
+    __tablename__ = "operation_task_roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("operation_tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    task = relationship("OperationTask", back_populates="assigned_roles")
+
+
+class OperationTaskUser(Base):
+    __tablename__ = "operation_task_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("operation_tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    task = relationship("OperationTask", back_populates="assigned_users")
+
+
+class OperationTaskEvent(Base):
+    __tablename__ = "operation_task_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("operation_tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String(60), nullable=False)
+    old_status = Column(String(30), nullable=True)
+    new_status = Column(String(30), nullable=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_display = Column(String(200), nullable=True)
+    notes = Column(Text, nullable=True)
+    details_summary = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    task = relationship("OperationTask", back_populates="events")
+
+
+class ApprovedTransactionCorrectionRequest(Base):
+    __tablename__ = "approved_transaction_correction_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_number = Column(String(60), nullable=False, unique=True, index=True)
+    entry_id = Column(Integer, ForeignKey("operation_entries.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id = Column(Integer, ForeignKey("operation_tasks.id", ondelete="SET NULL"), nullable=True, index=True)
+    ticket_number = Column(String(80), nullable=False, index=True)
+    operation_code = Column(String(80), nullable=True)
+    request_type = Column(String(80), nullable=False)
+    suggested_action = Column(String(80), nullable=False)
+    reason = Column(Text, nullable=False)
+    status = Column(String(40), nullable=False, default="Pending Admin Review", index=True)
+    requested_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    requested_by_display = Column(String(200), nullable=False)
+    requested_at = Column(DateTime, nullable=False, default=utcnow)
+    admin_action = Column(String(40), nullable=True)
+    admin_remarks = Column(Text, nullable=True)
+    admin_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    admin_action_at = Column(DateTime, nullable=True)
+    previous_status_before_revoke = Column(String(30), nullable=True)
+    new_status_after_revoke = Column(String(30), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    entry = relationship("OperationEntry")
+    task = relationship("OperationTask")
+
+
+# ---------------------------------------------------------------------------
+# Export Operations
+# ---------------------------------------------------------------------------
+class ExportLocation(Base):
+    __tablename__ = "export_locations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_code = Column(String(50), nullable=False, unique=True, index=True)
+    location_name = Column(String(150), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class ExportEntity(Base):
+    __tablename__ = "export_entities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entity_code = Column(String(50), nullable=False, unique=True, index=True)
+    entity_name = Column(String(150), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class ExportLocationEntity(Base):
+    __tablename__ = "export_location_entities"
+    __table_args__ = (
+        UniqueConstraint("location_code", "entity_code", name="uq_export_loc_entity"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_code = Column(String(50), nullable=False, index=True)
+    entity_code = Column(String(50), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="Active")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class ExportBlock(Base):
+    __tablename__ = "export_blocks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    block_code = Column(String(50), nullable=False, unique=True, index=True)
+    block_name = Column(String(150), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class ExportEntityBlock(Base):
+    __tablename__ = "export_entity_blocks"
+    __table_args__ = (
+        UniqueConstraint("entity_code", "block_code", name="uq_export_entity_block"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    entity_code = Column(String(50), nullable=False, index=True)
+    block_code = Column(String(50), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="Active")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class ExportConsignee(Base):
+    __tablename__ = "export_consignees"
+
+    id = Column(Integer, primary_key=True, index=True)
+    consignee_code = Column(String(50), nullable=False, unique=True, index=True)
+    consignee_name = Column(String(150), nullable=False)
+    country = Column(String(100), nullable=True)
+    contact_info = Column(String(200), nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class ExportPermit(Base):
+    __tablename__ = "export_permits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    permit_number = Column(String(80), nullable=False, unique=True, index=True)
+    location_code = Column(String(50), nullable=False, index=True)
+    entity_code = Column(String(50), nullable=False, index=True)
+    block_code = Column(String(50), nullable=True, index=True)
+    quarter = Column(String(20), nullable=False, index=True)
+    permit_volume = Column(Numeric(18, 4), nullable=False, default=0)
+    issue_date = Column(Date, nullable=True)
+    expiry_date = Column(Date, nullable=True)
+    remarks = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    block_assignments = relationship(
+        "ExportPermitBlockAssignment",
+        back_populates="permit",
+        cascade="all, delete-orphan",
+    )
+
+
+class ExportPermitBlockAssignment(Base):
+    __tablename__ = "export_permit_block_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    permit_id = Column(Integer, ForeignKey("export_permits.id", ondelete="CASCADE"), nullable=False, index=True)
+    block_code = Column(String(50), nullable=False, index=True)
+
+    permit = relationship("ExportPermit", back_populates="block_assignments")
+
+
+class ExportTransaction(Base):
+    __tablename__ = "export_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bl_date = Column(Date, nullable=False, index=True)
+    location_code = Column(String(50), nullable=False, index=True)
+    entity_code = Column(String(50), nullable=False, index=True)
+    block_code = Column(String(50), nullable=False, index=True)
+    permit_number = Column(String(80), nullable=True, index=True)
+    quarter = Column(String(20), nullable=False, index=True)
+    vessel_name = Column(String(150), nullable=True)
+    consignee = Column(String(150), nullable=True)
+    country = Column(String(100), nullable=True, index=True)
+    volume = Column(Numeric(18, 4), nullable=False, default=0)
+    override_permit_limit = Column(Boolean, nullable=False, default=False)
+    remarks = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class ExportConfig(Base):
+    __tablename__ = "export_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    config_key = Column(String(100), nullable=False, unique=True, index=True)
+    config_value = Column(String(250), nullable=False)
+    description = Column(Text, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Backup & Recovery (typed scalar columns only — no JSON)
+# ---------------------------------------------------------------------------
+class BackupSettings(Base):
+    __tablename__ = "backup_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    enabled = Column(Boolean, nullable=False, default=False)
+    schedule_mode = Column(String(20), nullable=False, default="Daily")
+    interval_value = Column(Integer, nullable=False, default=24)
+    run_time = Column(String(10), nullable=False, default="02:00")
+    retention_days = Column(Integer, nullable=False, default=30)
+    keep_minimum = Column(Integer, nullable=False, default=5)
+    backup_directory = Column(String(300), nullable=False, default="backups")
+    compression_enabled = Column(Boolean, nullable=False, default=True)
+    status = Column(String(20), nullable=False, default="Active")
+    next_run_at = Column(DateTime, nullable=True)
+    last_run_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class BackupJob(Base):
+    __tablename__ = "backup_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    backup_number = Column(String(60), nullable=False, unique=True, index=True)
+    backup_type = Column(String(30), nullable=False, default="Manual")
+    trigger_source = Column(String(30), nullable=False, default="User")
+    status = Column(String(20), nullable=False, default="Completed", index=True)
+    description = Column(Text, nullable=True)
+    file_name = Column(String(200), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    checksum_sha256 = Column(String(128), nullable=True)
+    database_name = Column(String(100), nullable=True)
+    backup_format = Column(String(40), nullable=False, default="SQLite Snapshot")
+    requested_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    requested_by_display = Column(String(200), nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    table_count = Column(Integer, nullable=True)
+    row_count = Column(Integer, nullable=True)
+    verified_at = Column(DateTime, nullable=True)
+    verified_checksum_matched = Column(Boolean, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class BackupRestoreRequest(Base):
+    __tablename__ = "backup_restore_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_number = Column(String(60), nullable=False, unique=True, index=True)
+    backup_job_id = Column(Integer, ForeignKey("backup_jobs.id", ondelete="RESTRICT"), nullable=False, index=True)
+    backup_number = Column(String(60), nullable=False)
+    status = Column(String(30), nullable=False, default="Pending Approval", index=True)
+    reason = Column(Text, nullable=False)
+    business_impact = Column(Text, nullable=True)
+    requested_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    requested_by_display = Column(String(200), nullable=True)
+    requested_at = Column(DateTime, nullable=False, default=utcnow)
+    approved_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_by_display = Column(String(200), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    rejected_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    rejected_by_display = Column(String(200), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    cancelled_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    cancelled_by_display = Column(String(200), nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    action_remarks = Column(Text, nullable=True)
+    pre_restore_backup_number = Column(String(60), nullable=True)
+    executed_by_display = Column(String(200), nullable=True)
+    executed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    backup_job = relationship("BackupJob")
+    validations = relationship(
+        "BackupRestoreValidation",
+        back_populates="restore_request",
+        cascade="all, delete-orphan",
+        order_by="BackupRestoreValidation.id.desc()",
+    )
+
+
+class BackupRestoreValidation(Base):
+    __tablename__ = "backup_restore_validations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    validation_number = Column(String(60), nullable=False, unique=True, index=True)
+    restore_request_id = Column(Integer, ForeignKey("backup_restore_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+    backup_job_id = Column(Integer, ForeignKey("backup_jobs.id", ondelete="RESTRICT"), nullable=False, index=True)
+    backup_number = Column(String(60), nullable=False)
+    status = Column(String(30), nullable=False, default="Validated", index=True)
+    validation_database_name = Column(String(120), nullable=True)
+    started_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    started_by_display = Column(String(200), nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    table_count = Column(Integer, nullable=True)
+    total_rows = Column(Integer, nullable=True)
+    validation_summary = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    restore_request = relationship("BackupRestoreRequest", back_populates="validations")
+
+
+# ---------------------------------------------------------------------------
+# System Notifications (typed child tables for targets — no JSON)
+# ---------------------------------------------------------------------------
+class SystemNotification(Base):
+    __tablename__ = "system_notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    notification_number = Column(String(60), nullable=False, unique=True, index=True)
+    title = Column(String(200), nullable=False)
+    message = Column(Text, nullable=False)
+    notification_type = Column(String(30), nullable=False, default="Info")
+    priority = Column(String(20), nullable=False, default="Normal")
+    delivery_mode = Column(String(30), nullable=False, default="Banner + Inbox")
+    target_scope = Column(String(30), nullable=False, default="All Users")
+    display_from = Column(DateTime, nullable=True)
+    display_until = Column(DateTime, nullable=True)
+    requires_acknowledgement = Column(Boolean, nullable=False, default=False)
+    popup_enabled = Column(Boolean, nullable=False, default=False)
+    banner_enabled = Column(Boolean, nullable=False, default=True)
+    auto_dismiss_seconds = Column(Integer, nullable=True)
+    status = Column(String(20), nullable=False, default="Draft", index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by_display = Column(String(200), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    published_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    deactivated_at = Column(DateTime, nullable=True)
+    deactivated_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    deactivation_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    target_roles = relationship("SystemNotificationTargetRole", back_populates="notification", cascade="all, delete-orphan")
+    target_users = relationship("SystemNotificationTargetUser", back_populates="notification", cascade="all, delete-orphan")
+    target_locations = relationship("SystemNotificationTargetLocation", back_populates="notification", cascade="all, delete-orphan")
+    receipts = relationship("SystemNotificationReceipt", back_populates="notification", cascade="all, delete-orphan")
+
+
+class SystemNotificationTargetRole(Base):
+    __tablename__ = "system_notification_target_roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    notification_id = Column(Integer, ForeignKey("system_notifications.id", ondelete="CASCADE"), nullable=False, index=True)
+    role_id = Column(Integer, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    notification = relationship("SystemNotification", back_populates="target_roles")
+
+
+class SystemNotificationTargetUser(Base):
+    __tablename__ = "system_notification_target_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    notification_id = Column(Integer, ForeignKey("system_notifications.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    notification = relationship("SystemNotification", back_populates="target_users")
+
+
+class SystemNotificationTargetLocation(Base):
+    __tablename__ = "system_notification_target_locations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    notification_id = Column(Integer, ForeignKey("system_notifications.id", ondelete="CASCADE"), nullable=False, index=True)
+    location_code = Column(String(50), nullable=False, index=True)
+
+    notification = relationship("SystemNotification", back_populates="target_locations")
+
+
+class SystemNotificationReceipt(Base):
+    __tablename__ = "system_notification_receipts"
+    __table_args__ = (
+        UniqueConstraint("notification_id", "user_id", name="uq_sys_notif_receipt_user"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    notification_id = Column(Integer, ForeignKey("system_notifications.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    username = Column(String(80), nullable=False)
+    status = Column(String(20), nullable=False, default="Unread", index=True)
+    delivered_at = Column(DateTime, nullable=False, default=utcnow)
+    first_seen_at = Column(DateTime, nullable=True)
+    last_seen_at = Column(DateTime, nullable=True)
+    dismissed_at = Column(DateTime, nullable=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    acknowledgement_remarks = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    notification = relationship("SystemNotification", back_populates="receipts")
+

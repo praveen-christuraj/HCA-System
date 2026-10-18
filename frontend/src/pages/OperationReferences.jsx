@@ -54,11 +54,17 @@ function ReferenceEditor({ kind, row, onSaved, onCancel }) {
     })}</div>{error && <Alert tone="danger">{error}</Alert>}
   </EntryDialog>
 }
-function ReferencesPage() {
+function ReferencesPage({ defaultKind }) {
   const { hasPermission } = usePermissions()
   const confirm = useConfirm()
   const tabs = Object.keys(CONFIG).filter(k => hasPermission(CONFIG[k].resource + ':read'))
-  const [kind, setKind] = useState(tabs[0] || 'table11')
+  const [kind, setKind] = useState(defaultKind && CONFIG[defaultKind] ? defaultKind : (tabs[0] || 'table11'))
+  useEffect(() => {
+    if (defaultKind && CONFIG[defaultKind]) {
+      setKind(defaultKind)
+      setPage(1)
+    }
+  }, [defaultKind])
   const config = CONFIG[kind]
   const [filters, setFilters] = useState({ search: '', status: '', asset_id: '', location_id: '', date_from: '', date_to: '' })
   const [data, setData] = useState({ items: [], total: 0, pages: 0 })
@@ -68,6 +74,8 @@ function ReferencesPage() {
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyRows, setHistoryRows] = useState([])
   const [refresh, setRefresh] = useState(0)
   useEffect(() => {
     let active = true; setBusy(true); setError('')
@@ -86,6 +94,7 @@ function ReferencesPage() {
       <div className="entry-list-toolbar"><label>Quick search<input value={filters.search} onChange={e => setFilter('search',e.target.value)} placeholder={kind === 'table11' ? 'API @60 value' : 'Reference / name / number…'} /></label>
         {kind !== 'table11' && <label>Status<select value={filters.status} onChange={e => setFilter('status',e.target.value)}><option value="">All</option>{(kind === 'voyages' ? ['OPEN','CLOSED'] : ['Active','Inactive']).map(s => <option key={s}>{s}</option>)}</select></label>}
         {!config.generated && hasPermission(config.resource + ':create') && <><button className="btn btn-primary" onClick={() => setEditing({ row: null })}>Add reference</button><button className="btn btn-secondary" onClick={() => setImporting(true)}>Import CSV / XLSX</button></>}
+        {kind === 'meters' && <button className="btn btn-secondary" onClick={async () => { try { const res = await apiGet('/flowmeter-configs/history?page_size=50'); setHistoryRows(res.items || []); setHistoryOpen(true) } catch (e) { setError(e.message) } }}>Meter Factor History</button>}
         {['csv','xlsx','pdf'].map(format => <button key={format} className="btn btn-secondary" onClick={async () => { try { await apiDownload(`/operation-references/${kind}/export${buildQuery({ ...filters, format })}`) } catch (e) { setError(e.message) } }}>Export {format.toUpperCase()}</button>)}
       </div>
       {['meters','seals','voyages'].includes(kind) && <details className="entry-list-toolbar"><summary>Advanced filters</summary><label>Asset ID<input type="number" min="1" value={filters.asset_id} onChange={e => setFilter('asset_id',e.target.value)} /></label>{kind !== 'seals' && <label>Location ID<input type="number" min="1" value={filters.location_id} onChange={e => setFilter('location_id',e.target.value)} /></label>}</details>}
@@ -103,9 +112,15 @@ function ReferencesPage() {
     </section>
     {config.generated && <Alert>Voyages cannot be imported: they are generated from operation tickets. Use close/reopen controls with audited remarks.</Alert>}
     {editing && <ReferenceEditor key={`${kind}-${editing.row?.id || 'new'}`} kind={kind} row={editing.row} onSaved={refreshData} onCancel={() => setEditing(null)} />}
+    {historyOpen && <EntryDialog title="Flowmeter Configuration Change History" footer={<button className="btn btn-secondary" onClick={() => setHistoryOpen(false)}>Close</button>}>
+      <div className="table-wrap"><table className="data-table"><thead><tr><th>ID</th><th>Action</th><th>Old Factor</th><th>New Factor</th><th>Status</th><th>Changed By</th><th>Summary</th><th>Timestamp</th></tr></thead><tbody>
+        {historyRows.map(h => <tr key={h.id}><td>{h.id}</td><td><StatusTag status={h.action} /></td><td>{h.old_meter_factor ?? '—'}</td><td>{h.new_meter_factor ?? '—'}</td><td>{h.new_status || '—'}</td><td>{h.changed_by || '—'}</td><td>{h.change_summary || '—'}</td><td>{h.changed_at ? new Date(h.changed_at).toLocaleString() : '—'}</td></tr>)}
+        {!historyRows.length && <tr><td colSpan={8}>No meter factor change history recorded yet.</td></tr>}
+      </tbody></table></div>
+    </EntryDialog>}
     {importing && <MasterImportDialog title={config.title} templateHeaders={Object.keys(config.fields)} templateFilename={`${kind}-template.csv`} onClose={() => setImporting(false)} onImported={refreshData} importFile={(file, confirm) => {
       const d = new FormData(); d.append('file', file); d.append('confirm', confirm); return apiUpload(`/operation-references/${kind}/import`, d)
     }} />}
   </div>
 }
-export default function OperationReferences() { return <EntryFeedback><ReferencesPage /></EntryFeedback> }
+export default function OperationReferences({ defaultKind }) { return <EntryFeedback><ReferencesPage defaultKind={defaultKind} /></EntryFeedback> }

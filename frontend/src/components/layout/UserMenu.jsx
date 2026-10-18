@@ -115,6 +115,17 @@ export default function UserMenu({ loggedInUser, onLogout }) {
               <Icon name="home" size={16} />
               Portfolio dashboard
             </Link>
+            {hasPermission('profile:read') && (
+              <Link
+                to="/profile-security"
+                role="menuitem"
+                className="user-menu-item"
+                onClick={() => setOpen(false)}
+              >
+                <Icon name="shield" size={16} />
+                Profile & Security
+              </Link>
+            )}
             {hasPermission('audit:read') && (
               <Link
                 to="/audit"
