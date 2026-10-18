@@ -341,3 +341,26 @@ Recorded in [DECISIONS.md](DECISIONS.md). Summary:
 - `frontend/tests/operation-entry.spec.js` runs against a real API/Vite proxy. See
   `playwright.config.js` and the delivery note for isolated test setup. Numerical OTMS fixtures
   are in `backend/tests/fixtures/otms_quantity_golden.json`.
+
+## 12. Operation Tracking layer (ADR-022)
+
+- `routers/operation_tracking.py` (prefix `/api/operation-tracking`) serves:
+  - the Transaction Register (`/transactions`);
+  - Barge (`/barge/*`), Tanker (`/tanker*`) and Shuttle / FSO (`/{shuttle|fso}/voyages*`) tracking;
+  - the FSO reports (`/fso/reports/{otr|material-balance|outturn}`);
+  - a CSV/XLSX/PDF export for each.
+
+  Pure derivation helpers live in `services/operation_tracking.py`: barge event resolution and
+  comparison, tanker seal/quantity checks, shuttle movement totals and the FSO report figures.
+- State is derived on every read from Approved `operation_entries` within
+  `scoped_entries(party=True)`. The persisted facts are `barge_timeline_events`,
+  `tanker_receipt_acknowledgements` and `operation_voyages`. Mutations lock the affected rows,
+  write a typed audit entry and commit once.
+- Ticket workflow transitions remain in `routers/operation_entries.py`. The register UI calls
+  those endpoints, so there is still one state machine.
+- Frontend:
+  - pages live under `pages/` (lazy);
+  - shared pieces live in `components/operationTracking/` (`TicketWorkflow`, `TrackingKit`,
+    `VoyageTracking`);
+  - styles are in `styles/operation-tracking.css`;
+  - the module dashboard key is `operation-tracking`, and its home card uses `any_permissions`.

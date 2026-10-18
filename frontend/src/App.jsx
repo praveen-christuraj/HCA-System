@@ -29,6 +29,13 @@ import {
 
 const OperationEntry = lazy(() => import('./pages/OperationEntry'))
 const OperationReferences = lazy(() => import('./pages/OperationReferences'))
+const OperationTransactionRegister = lazy(() => import('./pages/OperationTransactionRegister'))
+const OperationTransactionDetail = lazy(() => import('./pages/OperationTransactionDetail'))
+const BargeTracking = lazy(() => import('./pages/BargeTracking'))
+const TankerTracking = lazy(() => import('./pages/TankerTracking'))
+const ShuttleTracking = lazy(() => import('./pages/ShuttleTracking'))
+const FSOTracking = lazy(() => import('./pages/FSOTracking'))
+const TankerTransactionReport = lazy(() => import('./pages/TankerTransactionReport'))
 
 function App() {
   const [loggedInUser, setLoggedInUser] = useState(null)
@@ -203,6 +210,13 @@ function App() {
             />
             <Route path="/operation-entry" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_entries:read"><OperationEntry /></PermissionGuard>} />
             <Route path="/operation-references" element={<PermissionGuard loggedInUser={loggedInUser} anyOfPermissions={['operation_references:read','operation_policies:read','operation_voyages:read']}><OperationReferences /></PermissionGuard>} />
+            <Route path="/operation-transactions" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_transactions:read"><OperationTransactionRegister /></PermissionGuard>} />
+            <Route path="/operation-transactions/:id" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="operation_transactions:read"><OperationTransactionDetail /></PermissionGuard>} />
+            <Route path="/barge-tracking" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="barge_tracking:read"><BargeTracking /></PermissionGuard>} />
+            <Route path="/tanker-tracking" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="tanker_tracking:read"><TankerTracking /></PermissionGuard>} />
+            <Route path="/shuttle-tracking" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="shuttle_tracking:read"><ShuttleTracking /></PermissionGuard>} />
+            <Route path="/fso-tracking" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="fso_tracking:read"><FSOTracking /></PermissionGuard>} />
+            <Route path="/tanker-transaction-report" element={<PermissionGuard loggedInUser={loggedInUser} requiredPermission="tanker_transaction_reports:read"><TankerTransactionReport /></PermissionGuard>} />
             <Route path="/modules/:moduleKey" element={<ModuleDashboard />} />
             <Route path="*" element={<NotFound />} />
           </Routes></Suspense>

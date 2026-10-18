@@ -1,0 +1,61 @@
+/*
+ * Operation Tracking pages (Transaction Register, Barge / Tanker / Shuttle /
+ * FSO Tracking, Tanker Transaction Report). Token-only colours so light and
+ * dark themes both work; layout follows the platform register pattern.
+ */
+
+/* Bounded server-searchable lookup reused from Operation Entry. */
+.operation-tracking .entry-lookup { position: relative; min-width: 0; }
+.operation-tracking .entry-lookup-trigger { width: 100%; min-height: 36px; text-align: left; display: flex; justify-content: space-between; gap: 6px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); padding: 8px 10px; border-radius: var(--radius-control); }
+.operation-tracking .entry-lookup-menu { position: absolute; top: 100%; left: 0; right: 0; z-index: 60; background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-panel); box-shadow: var(--shadow-float); padding: 10px; }
+.operation-tracking .entry-lookup-menu [role='listbox'] { max-height: 240px; overflow: auto; }
+.operation-tracking .entry-lookup-menu [role='option'] { display: block; width: 100%; text-align: left; background: transparent; color: var(--text); padding: 8px; border: 0; font-size: 13px; }
+.operation-tracking .entry-lookup-menu [role='option']:hover, .operation-tracking .entry-lookup-menu [aria-selected='true'] { background: var(--primary-soft); }
+.operation-tracking .entry-lookup-pager { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; gap: 8px; }
+.operation-tracking .entry-lookup-pager button { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); padding: 4px; border-radius: 4px; font-size: 12px; }
+.operation-tracking .entry-lookup > label { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 12.5px; font-weight: 600; }
+.operation-tracking .entry-lookup-menu input { width: 100%; min-height: 34px; margin-bottom: 8px; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--surface); color: var(--text); }
+.operation-tracking .tracking-lookup-field { display: flex; flex-direction: column; gap: 4px; }
+.operation-tracking .tracking-lookup-field > .btn { align-self: flex-start; }
+
+/* Status tabs with counts (OTMS register / OPEN-CLOSED tabs). */
+.tracking-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 14px 0; border-bottom: 1px solid var(--divider); }
+.tracking-tab { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.tracking-tab:hover { color: var(--text); background: var(--surface-2); }
+.tracking-tab.is-active { color: var(--primary); border-bottom-color: var(--primary); }
+.tracking-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.tracking-tab-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--surface-3); color: var(--text-secondary); font-size: 11.5px; font-variant-numeric: tabular-nums; text-align: center; }
+.tracking-tab.is-active .tracking-tab-count { background: var(--primary-soft); color: var(--primary); }
+.page > .tracking-tabs { padding-left: 0; }
+
+/* Clickable status KPIs (Tanker Tracking). */
+.tracking-kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.tracking-kpi { text-align: left; font: inherit; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.tracking-kpi:hover { border-color: var(--border-strong); }
+.tracking-kpi.is-active { border-color: var(--primary); background: var(--primary-soft); }
+.tracking-kpi:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Detail headers. */
+.tracking-actions { flex-wrap: wrap; justify-content: flex-end; }
+.tracking-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 18px; margin: 0 0 14px; }
+.tracking-facts dt { color: var(--text-muted); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.tracking-facts dd { margin: 3px 0 0; color: var(--text); font-size: 13.5px; overflow-wrap: anywhere; }
+.tracking-export-row { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--divider); }
+.operation-tracking .section-title { margin: 16px 0 8px; }
+
+/* Numbers and comparison emphasis. */
+.data-table th.num, .data-table td.num { text-align: right; }
+.tracking-delta { color: var(--warning-text); font-weight: 650; }
+.tracking-total-row td { background: var(--table-head-bg); color: var(--table-head-text); font-weight: 700; }
+.tracking-comparison { margin-top: 10px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-2); }
+.tracking-comparison-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-bottom: 1px solid var(--divider); }
+.tracking-comparison .table-wrap { background: var(--surface); }
+.tracking-details { border-top: 1px solid var(--divider); }
+.tracking-details > summary { padding: 9px 12px; cursor: pointer; color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.tracking-report-totals { padding: 14px 18px 18px; }
+
+@media print {
+  .app-topbar, .app-navbar, .app-footer, .page-actions, .tracking-actions, .tracking-export-row, .toolbar, .filters-panel, .table-footer, .tracking-tabs { display: none !important; }
+  .card, .tracking-comparison { box-shadow: none; break-inside: avoid; }
+  .tracking-details { display: block; }
+}

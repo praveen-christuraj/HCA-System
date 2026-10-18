@@ -170,6 +170,50 @@ RESOURCE_PERMISSION_DEFINITIONS = [
         "category": "Business Modules", "label": "operation voyages",
         "actions": (READ, UPDATE,),
     },
+    # Operation Tracking (OTMS tracking modules). Status workflow actions on a
+    # ticket keep their existing capabilities (operation_submissions /
+    # operation_reviews / operation_approvals / operation_entries:delete); these
+    # resources only gate the register and tracking pages and their own facts.
+    {
+        "resource": "operation_transactions", "module_name": "Operation Transaction Register",
+        "category": "Operation Tracking", "label": "the operation transaction register and ticket detail",
+        "actions": (READ,),
+    },
+    {
+        # update = Fix Barge Timeline (event-type correction) and acknowledging /
+        # revoking barge receipts without a separate shipment-receipt grant.
+        "resource": "barge_tracking", "module_name": "Barge Tracking",
+        "category": "Operation Tracking", "label": "barge tracking",
+        "actions": (READ, UPDATE,),
+    },
+    {
+        # update = acknowledge / revoke receipt and close a tanker movement.
+        "resource": "tanker_tracking", "module_name": "Tanker Tracking",
+        "category": "Operation Tracking", "label": "tanker tracking",
+        "actions": (READ, UPDATE,),
+    },
+    {
+        "resource": "shuttle_tracking", "module_name": "Shuttle Tracking",
+        "category": "Operation Tracking", "label": "shuttle tracking",
+        "actions": (READ,),
+    },
+    {
+        "resource": "fso_tracking", "module_name": "FSO Tracking",
+        "category": "Operation Tracking", "label": "FSO tracking and FSO reports",
+        "actions": (READ,),
+    },
+    {
+        "resource": "tanker_transaction_reports", "module_name": "Tanker Transaction Report",
+        "category": "Operation Tracking", "label": "the tanker transaction report",
+        "actions": (READ,),
+    },
+    {
+        # OTMS "Acknowledge Shipment Receipt": create = acknowledge a barge or
+        # tanker receipt, delete = revoke an acknowledgement.
+        "resource": "shipment_receipts", "module_name": "Shipment Receipts",
+        "category": "Operation Tracking", "label": "barge and tanker receipt acknowledgements",
+        "actions": (CREATE, DELETE,),
+    },
     {
         "resource": "audit",
         "module_name": "Audit Trail",

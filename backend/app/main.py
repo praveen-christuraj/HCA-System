@@ -29,6 +29,7 @@ from app.routers import (
     locations,
     operation_entries,
     operation_entry_import,
+    operation_tracking,
     operation_references,
     operation_types,
     operations,
@@ -109,6 +110,7 @@ app.include_router(operations.router, prefix=API_PREFIX)
 app.include_router(operation_entries.router, prefix=API_PREFIX)
 app.include_router(operation_entry_import.router, prefix=API_PREFIX)
 app.include_router(operation_references.router, prefix=API_PREFIX)
+app.include_router(operation_tracking.router, prefix=API_PREFIX)
 app.include_router(user_roles.router, prefix=API_PREFIX)
 app.include_router(permissions.router, prefix=API_PREFIX)
 app.include_router(permission_presets.router, prefix=API_PREFIX)

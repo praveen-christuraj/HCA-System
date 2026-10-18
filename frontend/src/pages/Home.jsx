@@ -36,9 +36,11 @@ export default function Home() {
     load()
   }, [load])
 
-  const visibleModules = (data?.modules || []).filter((module) =>
-    isAdmin || !module.permission || hasPermission(module.permission),
-  )
+  const visibleModules = (data?.modules || []).filter((module) => {
+    if (isAdmin) return true
+    if (module.any_permissions?.length) return module.any_permissions.some(hasPermission)
+    return !module.permission || hasPermission(module.permission)
+  })
   const canViewAudit = isAdmin || hasPermission('audit:read')
 
   return (

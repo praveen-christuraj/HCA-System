@@ -420,3 +420,46 @@ whole chart per request, so a chart at the ceiling resolves in seconds rather th
 acceptable for a custody lookup, and the reason the calibration page does not fetch rows it never
 renders. The chart's PDF export stays bounded by `MAX_EXPORT_ROWS` — a print-grade document cannot
 usefully hold a strapping table — while CSV and XLSX carry every point and say how many.
+
+## ADR-022 — Operation Tracking: workflow in the register, tracking computed on read
+**Date:** 2026-10-18 · **Status:** Accepted (owner request)
+
+**Context.** The owner asked for the OTMS tracking modules in a new Operation Tracking module, with
+little UI change. Operation Entry should list only Draft tickets; every other workflow action
+should move to an Operation Transaction Register, as in OTMS. OTMS stores tracking state in several
+places (JSON payload fields, per-module configuration, GET-time synchronisation). HCA forbids JSON
+columns and expects every mutation to be audited.
+
+**Decision.**
+1. Operation Entry lists only **Draft and Rejected** tickets. Rejected is the editable return state
+   before re-submission. Submit / recall / approve / reject / cancel run from the Operation
+   Transaction Register and its detail page, which show the OTMS status-based actions. The existing
+   `POST /operation-entries/{id}/{action}` endpoint, its capabilities, version check and audit stay
+   the single workflow implementation. Its read guard also accepts `operation_transactions:read`.
+2. Tracking is **computed on read** from Approved tickets. Only explicit user facts are persisted,
+   in typed tables:
+   - barge receipt events and timeline overrides (`barge_timeline_events`);
+   - tanker receipt acknowledgements (`tanker_receipt_acknowledgements`);
+   - voyage closure (`operation_voyages`).
+
+   GET requests never write.
+3. Permissions are standard `resource:action` grants under the "Operation Tracking" category:
+   - one read per page;
+   - `barge_tracking:update` and `tanker_tracking:update` for tracking facts;
+   - `shipment_receipts:create|delete` as the narrower OTMS receipt grant.
+
+   Voyage and convoy close/reopen reuse `operation_voyages:update`. Fix Timeline is
+   `barge_tracking:update`, not Admin-only.
+4. The FSO accounting date is the operation date until a Location Accounting Day Setting exists.
+   Receipt acknowledgement gates *Create receiving ticket* in the UI only. The barge comparison
+   requires both tickets to use the multi-tank payload.
+
+**Consequences.**
+- Tracking always matches the Approved ledger, and corrections to master data cannot leave stale
+  tracking rows.
+- Large tanker ranges are bounded by `MAX_EXPORT_ROWS`, and the page asks the user to narrow the
+  filters.
+- Approved tickets stay immutable. A correction / revoke workflow and the accounting-day setting
+  are Planned and labelled so in the UI and docs.
+- Users who only work the register no longer need `operation_entries:read`.
+
