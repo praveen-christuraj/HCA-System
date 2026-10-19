@@ -370,9 +370,12 @@ class PasswordResetRequest(Base):
     reset_2fa = Column(Boolean, nullable=False, default=False)
     requested_at = Column(DateTime, nullable=False, default=utcnow)
     requested_by_ip = Column(String(80), nullable=True)
+    task_id = Column(Integer, ForeignKey("operation_tasks.id", ondelete="SET NULL"), nullable=True, index=True)
     acted_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     acted_at = Column(DateTime, nullable=True)
     action_notes = Column(Text, nullable=True)
+
+    task = relationship("OperationTask")
 
 
 class TokenBlacklist(Base):

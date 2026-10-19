@@ -762,25 +762,52 @@ export function MovementMappingPage() {
 // ============================================================================
 export function OperationTaskManagerPage() {
   const { hasPermission } = usePermissions()
-  const canUpdate = hasPermission('operation_tasks:update') || hasPermission('operation_approvals:create')
+  const canUpdate = hasPermission('operation_tasks:update') || hasPermission('operation_approvals:create') || hasPermission('operation_tasks:create')
+  const canSupervisorView = hasPermission('operation_tasks:read')
 
   const [filters, setFilters] = useState({ search: '', status: '', task_type: '', location_code: '', date_from: '', date_to: '' })
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
-  const [data, setData] = useState({ items: [], total: 0, pages: 1, kpis: {} })
+  const [data, setData] = useState({ items: [], total: 0, pages: 1, kpis: {}, status_counts: {} })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedTask, setSelectedTask] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [remarks, setRemarks] = useState('')
   const [refresh, setRefresh] = useState(0)
+  const [detailEvents, setDetailEvents] = useState([])
+
+  const statusCounts = data.status_counts || {}
+  const kpis = data.kpis || {}
+  // Fallback: derive KPIs from status_counts if kpis missing (OTMS parity)
+  const totalTasks = kpis.total ?? statusCounts.All ?? data.total ?? 0
+  const pendingCount = kpis.pending ?? statusCounts.Pending ?? 0
+  const inProgressCount = kpis.in_progress ?? kpis.in_review ?? statusCounts['In Progress'] ?? 0
+  const completedCount = kpis.completed ?? ((statusCounts.Approved || 0) + (statusCounts.Rejected || 0) + (statusCounts.Cancelled || 0) + (statusCounts.Closed || 0))
 
   useEffect(() => {
     let active = true
     setLoading(true)
     setError('')
-    apiGet(`/operation-tasks${buildQuery({ ...filters, page, page_size: pageSize })}`)
+    // Normalize status alias: In Review -> In Progress for backend
+    const queryFilters = { ...filters }
+    if (queryFilters.status === 'In Review' || queryFilters.status === 'In Progress') {
+      queryFilters.status = 'In Progress'
+    }
+    apiGet(`/operation-tasks${buildQuery({ ...queryFilters, page, page_size: pageSize })}`)
       .then((res) => {
-        if (active) setData(res)
+        if (!active) return
+        // Normalize response shape: backend may return rows/total_rows or items/total
+        const normalized = {
+          items: res.items || res.rows || [],
+          total: res.total ?? res.total_rows ?? 0,
+          pages: res.pages ?? Math.ceil((res.total ?? res.total_rows ?? 0) / (res.page_size || pageSize)) || 1,
+          page: res.page || page,
+          page_size: res.page_size || pageSize,
+          status_counts: res.status_counts || {},
+          kpis: res.kpis || {},
+        }
+        setData(normalized)
       })
       .catch((e) => {
         if (active) setError(e.message)
@@ -794,16 +821,82 @@ export function OperationTaskManagerPage() {
     }
   }, [filters, page, pageSize, refresh])
 
-  const runAction = async (taskId, action) => {
+  const fetchTaskDetail = async (taskRow) => {
+    setDetailLoading(true)
     setError('')
     try {
-      await apiPost(`/operation-tasks/${taskId}/${action}`, { remarks: remarks || `Action: ${action}` })
+      const detail = await apiGet(`/operation-tasks/${taskRow.id}`)
+      setSelectedTask(detail)
+      // Detail may include events array; otherwise fetch separately
+      if (detail.events && Array.isArray(detail.events)) {
+        setDetailEvents(detail.events)
+      } else {
+        try {
+          const ev = await apiGet(`/operation-tasks/${taskRow.id}/events`)
+          setDetailEvents(ev || [])
+        } catch {
+          setDetailEvents(detail.events || [])
+        }
+      }
+      setRemarks('')
+    } catch (e) {
+      setError(e.message)
+      // Fallback to row data
+      setSelectedTask(taskRow)
+      setDetailEvents(taskRow.events || [])
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const runAction = async (taskId, action) => {
+    setError('')
+    // Map OTMS alias actions to HCA endpoints
+    const endpointMap = {
+      take: 'take',
+      'take-ownership': 'take-ownership',
+      release: 'release',
+      approve: 'approve',
+      reject: 'reject',
+    }
+    const endpointAction = endpointMap[action] || action
+    try {
+      await apiPost(`/operation-tasks/${taskId}/${endpointAction}`, { remarks: remarks || `Action: ${action}` })
       setSelectedTask(null)
+      setDetailEvents([])
       setRemarks('')
       setRefresh((r) => r + 1)
     } catch (e) {
+      // Fallback: try alternative endpoint name (OTMS vs HCA)
+      if (action === 'take' || action === 'take-ownership') {
+        const alt = action === 'take' ? 'take-ownership' : 'take'
+        try {
+          await apiPost(`/operation-tasks/${taskId}/${alt}`, { remarks: remarks || `Action: ${action}` })
+          setSelectedTask(null)
+          setDetailEvents([])
+          setRemarks('')
+          setRefresh((r) => r + 1)
+          return
+        } catch (e2) {
+          setError(e2.message)
+          return
+        }
+      }
       setError(e.message)
     }
+  }
+
+  const closeDetail = () => {
+    setSelectedTask(null)
+    setDetailEvents([])
+    setRemarks('')
+  }
+
+  const isOpenStatus = (s) => ['Pending', 'In Progress', 'In Review'].includes(s)
+  const displayTakenBy = (row) => {
+    if (row.taken_by_user_id) return `User #${row.taken_by_user_id}`
+    if (row.taken_by_name) return row.taken_by_name
+    return 'Unassigned'
   }
 
   return (
@@ -833,10 +926,10 @@ export function OperationTaskManagerPage() {
       />
 
       <div className="kpi-grid">
-        <KpiCard label="Total Tasks" value={data.kpis?.total ?? 0} context="In queue" />
-        <KpiCard label="Pending" value={data.kpis?.pending ?? 0} context="Awaiting pickup" />
-        <KpiCard label="In Review" value={data.kpis?.in_review ?? 0} context="Taken by reviewer" />
-        <KpiCard label="Completed" value={data.kpis?.completed ?? 0} context="Approved or rejected" />
+        <KpiCard label="Total Tasks" value={totalTasks} context="In queue" />
+        <KpiCard label="Pending" value={pendingCount} context="Awaiting pickup" />
+        <KpiCard label="In Progress" value={inProgressCount} context="Taken by reviewer" />
+        <KpiCard label="Completed" value={completedCount} context="Approved / rejected / cancelled" />
       </div>
 
       <section className="card">
@@ -865,9 +958,26 @@ export function OperationTaskManagerPage() {
             >
               <option value="">All Statuses</option>
               <option value="Pending">Pending</option>
-              <option value="In Review">In Review</option>
+              <option value="In Progress">In Progress</option>
               <option value="Approved">Approved</option>
               <option value="Rejected">Rejected</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div className="filter-group">
+            <label>Task Type</label>
+            <select
+              className="select"
+              value={filters.task_type}
+              onChange={(e) => {
+                setFilters((f) => ({ ...f, task_type: e.target.value }))
+                setPage(1)
+              }}
+            >
+              <option value="">All Types</option>
+              <option value="OPERATION_APPROVAL">Operation Approval</option>
+              <option value="APPROVED_TRANSACTION_REVOKE_REQUEST">Correction Revoke</option>
+              <option value="PASSWORD_RESET_REQUEST">Password Reset</option>
             </select>
           </div>
         </div>
@@ -876,7 +986,7 @@ export function OperationTaskManagerPage() {
         {loading ? (
           <Loading />
         ) : data.items.length === 0 ? (
-          <EmptyState title="No workflow tasks found" />
+          <EmptyState title="No workflow tasks found" description={filters.status || filters.search ? 'Adjust filters or clear search to see tasks.' : 'Tasks appear here when tickets are submitted for approval or correction requests are raised.'} />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
@@ -898,7 +1008,7 @@ export function OperationTaskManagerPage() {
                 {data.items.map((row) => (
                   <tr key={row.id}>
                     <td className="mono">{row.task_number}</td>
-                    <td>{row.task_type}</td>
+                    <td className="mono" style={{ fontSize: '12px' }}>{row.task_type?.replace(/_/g, ' ')}</td>
                     <td className="mono">{row.ticket_number || '—'}</td>
                     <td className="mono">{row.location_code || '—'}</td>
                     <td className="mono">{row.primary_asset_code || '—'}</td>
@@ -906,10 +1016,10 @@ export function OperationTaskManagerPage() {
                     <td>
                       <StatusTag status={row.status} />
                     </td>
-                    <td>{row.taken_by_name || 'Unassigned'}</td>
+                    <td>{displayTakenBy(row)}</td>
                     <td>{formatDateTime(row.created_at)}</td>
                     <td>
-                      <button type="button" className="btn btn-secondary" onClick={() => setSelectedTask(row)}>
+                      <button type="button" className="btn btn-secondary" onClick={() => fetchTaskDetail(row)}>
                         Manage
                       </button>
                     </td>
@@ -938,25 +1048,25 @@ export function OperationTaskManagerPage() {
           title={`Task ${selectedTask.task_number} — Ticket ${selectedTask.ticket_number || '—'}`}
           footer={
             <>
-              <button type="button" className="btn btn-secondary" onClick={() => setSelectedTask(null)}>
+              <button type="button" className="btn btn-secondary" onClick={closeDetail}>
                 Close
               </button>
-              {canUpdate && ['Pending', 'In Review'].includes(selectedTask.status) && (
+              {canUpdate && isOpenStatus(selectedTask.status) && (
                 <>
                   {selectedTask.status === 'Pending' && (
-                    <button type="button" className="btn btn-secondary" onClick={() => runAction(selectedTask.id, 'take')}>
+                    <button type="button" className="btn btn-secondary" disabled={detailLoading} onClick={() => runAction(selectedTask.id, 'take')}>
                       Take Task
                     </button>
                   )}
-                  {selectedTask.status === 'In Review' && (
-                    <button type="button" className="btn btn-secondary" onClick={() => runAction(selectedTask.id, 'release')}>
+                  {selectedTask.status === 'In Progress' && (
+                    <button type="button" className="btn btn-secondary" disabled={detailLoading} onClick={() => runAction(selectedTask.id, 'release')}>
                       Release
                     </button>
                   )}
-                  <button type="button" className="btn btn-secondary" onClick={() => runAction(selectedTask.id, 'reject')}>
+                  <button type="button" className="btn btn-secondary" disabled={detailLoading} onClick={() => runAction(selectedTask.id, 'reject')}>
                     Reject
                   </button>
-                  <button type="button" className="btn btn-primary" onClick={() => runAction(selectedTask.id, 'approve')}>
+                  <button type="button" className="btn btn-primary" disabled={detailLoading} onClick={() => runAction(selectedTask.id, 'approve')}>
                     Approve Ticket
                   </button>
                 </>
@@ -965,43 +1075,67 @@ export function OperationTaskManagerPage() {
           }
         >
           <div className="stack">
-            <div>
-              <strong>Status:</strong> <StatusTag status={selectedTask.status} /> | <strong>Operation:</strong>{' '}
-              {selectedTask.operation_code || '—'}
-            </div>
-            <label>
-              Decision Remarks
-              <input className="input" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Enter review/approval/rejection remarks…" />
-            </label>
-            <div>
-              <strong>Task Event Timeline:</strong>
-              <div className="table-wrap" style={{ marginTop: '8px' }}>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Event</th>
-                      <th>Transition</th>
-                      <th>Actor</th>
-                      <th>Notes</th>
-                      <th>Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(selectedTask.events || []).map((ev) => (
-                      <tr key={ev.id}>
-                        <td className="mono">{ev.event_type}</td>
-                        <td>
-                          {ev.old_status || '—'} → {ev.new_status || '—'}
-                        </td>
-                        <td>{ev.actor_display || '—'}</td>
-                        <td>{ev.notes || '—'}</td>
-                        <td>{formatDateTime(ev.created_at)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            {detailLoading ? (
+              <Loading label="Loading task details…" />
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span><strong>Status:</strong> <StatusTag status={selectedTask.status} /></span>
+                  <span><strong>Operation:</strong> {selectedTask.operation_code || '—'}</span>
+                  <span><strong>Type:</strong> {selectedTask.task_type}</span>
+                  <span><strong>Priority:</strong> {selectedTask.priority}</span>
+                </div>
+                {selectedTask.correction_request && (
+                  <div className="alert alert-info" role="status">
+                    <strong>Correction:</strong> {selectedTask.correction_request.request_number} — {selectedTask.correction_request.request_type} ({selectedTask.correction_request.suggested_action})
+                    <div className="muted small">{selectedTask.correction_request.reason}</div>
+                  </div>
+                )}
+                <label>
+                  Decision Remarks
+                  <input className="input" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Enter review/approval/rejection remarks…" />
+                </label>
+                {selectedTask.entry && (
+                  <div className="card" style={{ padding: '12px', background: 'var(--bg-subtle)' }}>
+                    <strong>Linked Ticket:</strong> {selectedTask.entry.ticket_number} ({selectedTask.entry.operation_type_code}) — {selectedTask.entry.status}
+                    <div className="muted small">Asset: {selectedTask.entry.asset_code_snapshot || selectedTask.entry.primary_asset_code || '—'} | Location: {selectedTask.entry.location_code || selectedTask.location_code}</div>
+                  </div>
+                )}
+                <div>
+                  <strong>Task Event Timeline:</strong>
+                  {(detailEvents.length === 0 && !(selectedTask.events || []).length) ? (
+                    <div className="muted small" style={{ marginTop: '8px' }}>No task history yet. Actions will be recorded here.</div>
+                  ) : (
+                    <div className="table-wrap" style={{ marginTop: '8px' }}>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Event</th>
+                            <th>Transition</th>
+                            <th>Actor</th>
+                            <th>Notes</th>
+                            <th>Timestamp</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(detailEvents.length ? detailEvents : (selectedTask.events || [])).map((ev) => (
+                            <tr key={ev.id}>
+                              <td className="mono">{ev.event_type}</td>
+                              <td>
+                                {ev.old_status || '—'} → {ev.new_status || '—'}
+                              </td>
+                              <td>{ev.actor_display || '—'}</td>
+                              <td>{ev.notes || '—'}</td>
+                              <td>{formatDateTime(ev.created_at)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </EntryDialog>
       )}
