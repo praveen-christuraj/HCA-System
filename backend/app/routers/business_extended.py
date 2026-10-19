@@ -13,7 +13,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_
+from sqlalchemy import Integer, String, and_, case, cast, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import MAX_EXPORT_ROWS
@@ -1035,6 +1035,20 @@ def _next_task_number(db: Session) -> str:
     return f"{prefix}-{count + 1:04d}"
 
 
+def _effective_task_status_expression():
+    """Mirror OTMS legacy open-task projection: if entry already moved, task reflects it."""
+    is_open_approval = and_(
+        OperationTask.task_type == "OPERATION_APPROVAL",
+        OperationTask.status.in_(["Pending", "In Progress"]),
+    )
+    return case(
+        (and_(is_open_approval, OperationEntry.status == "Approved"), "Approved"),
+        (and_(is_open_approval, OperationEntry.status == "Rejected"), "Rejected"),
+        (and_(is_open_approval, OperationEntry.status.in_(["Draft", "Cancelled"])), "Cancelled"),
+        else_=OperationTask.status,
+    )
+
+
 def _sync_approval_tasks_for_submitted_entries(db: Session):
     """Ensure every currently Submitted OperationEntry has an open approval task."""
     submitted_entries = (
@@ -1044,18 +1058,20 @@ def _sync_approval_tasks_for_submitted_entries(db: Session):
     )
     if not submitted_entries:
         return
-    existing_entry_ids = {
+    # Only consider OPEN tasks as existing, so resubmitted tickets get new tasks (OTMS parity)
+    existing_open_entry_ids = {
         eid
         for (eid,) in db.query(OperationTask.entry_id)
         .filter(
             OperationTask.task_type == "OPERATION_APPROVAL",
             OperationTask.entry_id.isnot(None),
+            OperationTask.status.in_(["Pending", "In Progress"]),
         )
         .all()
     }
     created = False
     for entry in submitted_entries:
-        if entry.id in existing_entry_ids:
+        if entry.id in existing_open_entry_ids:
             continue
         loc = db.get(Location, entry.location_id)
         task = OperationTask(
@@ -1091,6 +1107,16 @@ def _sync_approval_tasks_for_submitted_entries(db: Session):
         created = True
     if created:
         db.commit()
+
+
+def _normalize_task_status(value: str | None) -> str | None:
+    """Map legacy/alias statuses (OTMS Used 'In Review') to canonical HCA status."""
+    if not value:
+        return None
+    v = value.strip()
+    if v.lower() == "in review":
+        return "In Progress"
+    return v
 
 
 def _serialize_task(db: Session, task: OperationTask, include_entry: bool = False) -> dict:
@@ -1178,13 +1204,27 @@ def list_operation_tasks(
     operation_type_code: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    # OTMS alias params (frontend may send created_from/created_to or dateFrom/dateTo)
+    created_from: date | None = None,
+    created_to: date | None = None,
     actor: User = Depends(
         require_any_permission("operation_tasks:read", "operation_approvals:create", "operation_entries:read")
     ),
     db: Session = Depends(get_db),
 ):
     _sync_approval_tasks_for_submitted_entries(db)
-    q = db.query(OperationTask)
+    # Normalize status aliases
+    status = _normalize_task_status(status)
+    # Handle OTMS date aliases
+    if created_from and not date_from:
+        date_from = created_from
+    if created_to and not date_to:
+        date_to = created_to
+
+    # Build base query with join for effective status counting
+    effective_status = _effective_task_status_expression()
+    q = db.query(OperationTask).outerjoin(OperationEntry, OperationEntry.id == OperationTask.entry_id)
+
     allowed = get_user_location_ids(db, actor)
     if allowed is not None:
         q = q.filter(or_(OperationTask.location_id.in_(allowed), OperationTask.location_id.is_(None)))
@@ -1194,13 +1234,12 @@ def list_operation_tasks(
             or_(
                 OperationTask.task_number.ilike(term),
                 OperationTask.ticket_number.ilike(term),
+                OperationTask.operation_code.ilike(term),
                 OperationTask.primary_asset_code.ilike(term),
                 OperationTask.location_code.ilike(term),
                 OperationTask.remarks.ilike(term),
             )
         )
-    if status:
-        q = q.filter(OperationTask.status == status)
     if task_type:
         q = q.filter(OperationTask.task_type == task_type)
     if priority:
@@ -1214,25 +1253,47 @@ def list_operation_tasks(
     if date_to:
         q = q.filter(OperationTask.created_at <= datetime.combine(date_to, time.max))
 
-    counts_raw = dict(
-        db.query(OperationTask.status, func.count(OperationTask.id))
-        .group_by(OperationTask.status)
-        .all()
-    )
+    # Compute counts using effective status (OTMS parity)
+    counts_query = q.with_entities(effective_status.label("eff_status"), func.count(OperationTask.id)).group_by(effective_status)
+    counts_raw_list = counts_query.all()
+    counts_raw = {str(k): int(v) for k, v in counts_raw_list if k is not None}
+    # Fallback for tasks without entry (closed statuses)
+    total_all = sum(counts_raw.values())
+
+    # For status filter, apply effective status as well
+    if status:
+        q = q.filter(effective_status == status)
+
     result = paginate_query(
         q.order_by(OperationTask.created_at.desc(), OperationTask.id.desc()),
         page=page,
         page_size=page_size,
     )
     result["items"] = [_serialize_task(db, t, include_entry=False) for t in result["items"]]
-    result["status_counts"] = {
-        "All": sum(counts_raw.values()),
+    # Provide both status_counts and kpis for frontend compatibility (OTMS vs HCA)
+    sc = {
+        "All": total_all,
         "Pending": counts_raw.get("Pending", 0),
         "In Progress": counts_raw.get("In Progress", 0),
         "Approved": counts_raw.get("Approved", 0),
         "Rejected": counts_raw.get("Rejected", 0),
         "Cancelled": counts_raw.get("Cancelled", 0),
+        "Closed": counts_raw.get("Closed", 0),
     }
+    # Also expose lowercase keys for older frontend
+    result["status_counts"] = sc
+    result["kpis"] = {
+        "total": total_all,
+        "pending": counts_raw.get("Pending", 0),
+        "in_progress": counts_raw.get("In Progress", 0),
+        "in_review": counts_raw.get("In Progress", 0),
+        "approved": counts_raw.get("Approved", 0),
+        "rejected": counts_raw.get("Rejected", 0),
+        "completed": counts_raw.get("Approved", 0) + counts_raw.get("Rejected", 0) + counts_raw.get("Cancelled", 0) + counts_raw.get("Closed", 0),
+    }
+    # Legacy OTMS keys
+    result["total_rows"] = total_all
+    result["rows"] = result["items"]
     return result
 
 
@@ -1287,6 +1348,147 @@ def export_operation_tasks(
     if format == "xlsx":
         return xlsx_response("operation-tasks", "Operation Tasks", headers, rows)
     return pdf_response("operation-tasks", "Operation Task Manager", headers, rows)
+
+
+@router.get("/operation-tasks/my")
+def get_my_operation_tasks(
+    status: str | None = None,
+    task_type: str | None = None,
+    search: str | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
+    actor: User = Depends(require_any_permission("operation_tasks:read", "operation_approvals:create", "operation_entries:read")),
+    db: Session = Depends(get_db),
+):
+    _sync_approval_tasks_for_submitted_entries(db)
+    q = db.query(OperationTask).outerjoin(OperationEntry, OperationEntry.id == OperationTask.entry_id)
+    allowed = get_user_location_ids(db, actor)
+    if allowed is not None:
+        q = q.filter(or_(OperationTask.location_id.in_(allowed), OperationTask.location_id.is_(None)))
+    status = _normalize_task_status(status)
+    if status and status.upper() != "ALL":
+        q = q.filter(_effective_task_status_expression() == status)
+    if task_type and task_type != "ALL":
+        q = q.filter(OperationTask.task_type == task_type)
+    if search:
+        term = f"%{search.strip()}%"
+        q = q.filter(
+            or_(
+                OperationTask.task_number.ilike(term),
+                OperationTask.ticket_number.ilike(term),
+                OperationTask.primary_asset_code.ilike(term),
+                OperationTask.location_code.ilike(term),
+            )
+        )
+    if created_from:
+        q = q.filter(OperationTask.created_at >= datetime.combine(created_from, time.min))
+    if created_to:
+        q = q.filter(OperationTask.created_at <= datetime.combine(created_to, time.max))
+    tasks = q.order_by(OperationTask.created_at.desc(), OperationTask.id.desc()).all()
+    if not is_admin_user(actor, db):
+        tasks = [t for t in tasks if _user_can_act_on_task(db, actor, t)]
+    return [_serialize_task(db, t) for t in tasks]
+
+
+@router.get("/operation-tasks/my/paged")
+def get_my_operation_tasks_paged(
+    status: str | None = None,
+    task_type: str | None = None,
+    search: str | None = None,
+    created_from: str | None = None,
+    created_to: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20),
+    actor: User = Depends(require_any_permission("operation_tasks:read", "operation_approvals:create", "operation_entries:read")),
+    db: Session = Depends(get_db),
+):
+    """OTMS-compatible paged endpoint: returns rows, total_rows, status_counts, has_more."""
+    _sync_approval_tasks_for_submitted_entries(db)
+    try:
+        cf = None
+        ct = None
+        if created_from:
+            cf = date.fromisoformat(created_from) if isinstance(created_from, str) else created_from
+        if created_to:
+            ct = date.fromisoformat(created_to) if isinstance(created_to, str) else created_to
+    except Exception:
+        raise HTTPException(status_code=400, detail="created_from/created_to must be YYYY-MM-DD")
+    status_norm = _normalize_task_status(status)
+    effective_status = _effective_task_status_expression()
+    base_q = db.query(OperationTask).outerjoin(OperationEntry, OperationEntry.id == OperationTask.entry_id)
+    allowed = get_user_location_ids(db, actor)
+    if allowed is not None:
+        base_q = base_q.filter(or_(OperationTask.location_id.in_(allowed), OperationTask.location_id.is_(None)))
+    if task_type and task_type != "ALL":
+        base_q = base_q.filter(OperationTask.task_type == task_type)
+    if search:
+        term = f"%{search.strip()}%"
+        base_q = base_q.filter(
+            or_(
+                OperationTask.task_number.ilike(term),
+                OperationTask.ticket_number.ilike(term),
+                OperationTask.operation_code.ilike(term),
+                OperationTask.primary_asset_code.ilike(term),
+                OperationTask.location_code.ilike(term),
+            )
+        )
+    if cf:
+        base_q = base_q.filter(OperationTask.created_at >= datetime.combine(cf, time.min))
+    if ct:
+        base_q = base_q.filter(OperationTask.created_at <= datetime.combine(ct, time.max))
+    if not is_admin_user(actor, db):
+        all_tasks = base_q.order_by(OperationTask.created_at.desc(), OperationTask.id.desc()).all()
+        assigned_tasks = [t for t in all_tasks if _user_can_act_on_task(db, actor, t)]
+        counts = {}
+        for t in assigned_tasks:
+            eff = _serialize_task(db, t)["status"]
+            counts[eff] = counts.get(eff, 0) + 1
+        counts["ALL"] = len(assigned_tasks)
+        total_rows = counts.get(status_norm, 0) if status_norm and status_norm.upper() != "ALL" else counts["ALL"]
+        if status_norm and status_norm.upper() != "ALL":
+            assigned_tasks = [t for t in assigned_tasks if _serialize_task(db, t)["status"] == status_norm]
+        page = max(int(page or 1), 1)
+        page_size = max(min(int(page_size or 20), 100), 1)
+        start = (page - 1) * page_size
+        page_rows = assigned_tasks[start : start + page_size]
+        has_more = len(assigned_tasks) > start + page_size
+        rows = [_serialize_task(db, t) for t in page_rows]
+        return {
+            "rows": rows,
+            "total_rows": total_rows,
+            "total": total_rows,
+            "page": page,
+            "page_size": page_size,
+            "has_more": has_more,
+            "status_counts": counts,
+            "items": rows,
+        }
+    counts_list = base_q.with_entities(effective_status.label("eff"), func.count(OperationTask.id)).group_by(effective_status).all()
+    status_counts = {str(k): int(v) for k, v in counts_list if k is not None}
+    status_counts["ALL"] = sum(status_counts.values())
+    wanted = status_norm
+    total_rows = status_counts.get(wanted, 0) if wanted and wanted.upper() != "ALL" else status_counts["ALL"]
+    page_q = base_q
+    if wanted and wanted.upper() != "ALL":
+        page_q = page_q.filter(effective_status == wanted)
+    page_q = page_q.order_by(OperationTask.created_at.desc(), OperationTask.id.desc())
+    page = max(int(page or 1), 1)
+    page_size = max(min(int(page_size or 20), 100), 1)
+    offset = (page - 1) * page_size
+    page_rows = page_q.offset(offset).limit(page_size + 1).all()
+    has_more = len(page_rows) > page_size
+    page_rows = page_rows[:page_size]
+    rows = [_serialize_task(db, t) for t in page_rows]
+    return {
+        "rows": rows,
+        "total_rows": total_rows,
+        "total": total_rows,
+        "page": page,
+        "page_size": page_size,
+        "has_more": has_more,
+        "status_counts": status_counts,
+        "items": rows,
+    }
 
 
 @router.get("/operation-tasks/{task_id}")
@@ -1571,6 +1773,111 @@ def reject_operation_task(
     db.refresh(task)
     request.state.audit_written = True
     return _serialize_task(db, task, include_entry=True)
+
+
+def _user_can_act_on_task(db: Session, user: User, task: OperationTask) -> bool:
+    """Check if user is assigned via direct or role assignment (OTMS parity)."""
+    if is_admin_user(user, db):
+        return True
+    # direct assignment
+    direct = db.query(OperationTaskUser).filter(OperationTaskUser.task_id == task.id, OperationTaskUser.user_id == user.id).first()
+    if direct:
+        return True
+    # role assignment
+    user_role_ids = get_user_role_ids(db, user) or []
+    if user_role_ids:
+        role_match = (
+            db.query(OperationTaskRole)
+            .filter(OperationTaskRole.task_id == task.id, OperationTaskRole.role_id.in_(user_role_ids))
+            .first()
+        )
+        if role_match:
+            return True
+    # If task has no assignments, allow any user with operation_tasks:read to act (fallback for legacy)
+    if not task.assigned_roles and not task.assigned_users:
+        return True
+    return False
+
+
+@router.get("/operation-tasks/{task_id}/events")
+def get_operation_task_events(
+    task_id: int,
+    actor: User = Depends(require_any_permission("operation_tasks:read", "operation_approvals:create", "operation_entries:read")),
+    db: Session = Depends(get_db),
+):
+    task = db.get(OperationTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Operation task not found")
+    events = (
+        db.query(OperationTaskEvent)
+        .filter(OperationTaskEvent.task_id == task_id)
+        .order_by(OperationTaskEvent.created_at.asc(), OperationTaskEvent.id.asc())
+        .all()
+    )
+    return [
+        {
+            "id": ev.id,
+            "event_type": ev.event_type,
+            "old_status": ev.old_status or "",
+            "new_status": ev.new_status or "",
+            "actor_display": ev.actor_display or "",
+            "actor_user_id": ev.actor_user_id,
+            "notes": ev.notes or "",
+            "created_at": ev.created_at,
+        }
+        for ev in events
+    ]
+
+
+@router.post("/operation-tasks/{task_id}/take-ownership")
+def take_ownership_operation_task(
+    task_id: int,
+    payload: TaskActionPayload | None = None,
+    request: Request = None,
+    actor: User = Depends(require_any_permission("operation_tasks:update", "operation_approvals:create")),
+    db: Session = Depends(get_db),
+):
+    """OTMS alias: take-ownership -> take"""
+    return take_operation_task(task_id=task_id, payload=payload, request=request, actor=actor, db=db)
+
+
+@router.post("/operation-tasks/{task_id}/admin-revoke-approved-transaction")
+def admin_revoke_approved_transaction_task(
+    task_id: int,
+    payload: CorrectionAdminActionPayload | None = None,
+    request: Request = None,
+    actor: User = Depends(require_any_permission("correction_requests:update", "operation_approvals:update")),
+    db: Session = Depends(get_db),
+):
+    task = db.get(OperationTask, task_id)
+    if task is None or task.task_type != "APPROVED_TRANSACTION_REVOKE_REQUEST":
+        raise HTTPException(status_code=404, detail="Approved transaction revoke task not found")
+    if task.status not in ("Pending", "In Progress"):
+        raise HTTPException(status_code=400, detail="Only open revoke tasks can be acted on")
+    # Delegate to correction revoke logic via correction_id
+    corr = db.query(ApprovedTransactionCorrectionRequest).filter(ApprovedTransactionCorrectionRequest.task_id == task.id).first()
+    if not corr:
+        raise HTTPException(status_code=404, detail="Correction request not found for this task")
+    return admin_revoke_approved_transaction(correction_id=corr.id, payload=payload or CorrectionAdminActionPayload(remarks="Admin revoked via Task Manager"), request=request, actor=actor, db=db)
+
+
+@router.post("/operation-tasks/{task_id}/admin-reject-approved-revoke")
+def admin_reject_approved_revoke_task(
+    task_id: int,
+    payload: CorrectionAdminActionPayload | None = None,
+    request: Request = None,
+    actor: User = Depends(require_any_permission("correction_requests:update", "operation_approvals:update")),
+    db: Session = Depends(get_db),
+):
+    task = db.get(OperationTask, task_id)
+    if task is None or task.task_type != "APPROVED_TRANSACTION_REVOKE_REQUEST":
+        raise HTTPException(status_code=404, detail="Approved transaction revoke task not found")
+    if task.status not in ("Pending", "In Progress"):
+        raise HTTPException(status_code=400, detail="Only open revoke tasks can be rejected")
+    corr = db.query(ApprovedTransactionCorrectionRequest).filter(ApprovedTransactionCorrectionRequest.task_id == task.id).first()
+    if not corr:
+        raise HTTPException(status_code=404, detail="Correction request not found for this task")
+    return admin_reject_correction_request(correction_id=corr.id, payload=payload or CorrectionAdminActionPayload(remarks="Admin rejected via Task Manager"), request=request, actor=actor, db=db)
 
 
 # ---------------------------------------------------------------------------

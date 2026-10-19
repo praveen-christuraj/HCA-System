@@ -499,6 +499,20 @@ def request_password_reset(
     )
 
     if user is not None:
+        # Deduplicate pending requests for this user (OTMS parity)
+        existing_pending = (
+            db.query(PasswordResetRequest)
+            .filter(PasswordResetRequest.user_id == user.id, PasswordResetRequest.status == "Pending")
+            .first()
+        )
+        if existing_pending:
+            db.commit()
+            return {
+                "message": (
+                    "Password reset request submitted. An administrator will review it; "
+                    "contact your administrator if you need urgent access."
+                )
+            }
         today = utcnow().strftime("%Y%m%d")
         prefix = f"PWR-{today}"
         count = (
@@ -517,6 +531,81 @@ def request_password_reset(
             requested_by_ip=client_ip(request),
         )
         db.add(reset_request)
+        db.flush()
+        # Create linked Task Manager task (PASSWORD_RESET_REQUEST) so it appears in /operation-tasks
+        try:
+            from app.models import OperationTask, OperationTaskEvent
+            from app.dependencies.permissions import get_user_role_ids
+
+            # Assign to roles that can reset passwords (users:update or users:read)
+            assigned_role_ids = []
+            try:
+                from app.models import Role
+                from app.models import RolePermission
+                from app.models import Permission
+                # Roles with users:update
+                q = (
+                    db.query(Role.id)
+                    .join(RolePermission, RolePermission.role_id == Role.id)
+                    .join(Permission, Permission.id == RolePermission.permission_id)
+                    .filter(Permission.permission_name == "users:update", Permission.status == "Active", Role.status == "Active")
+                )
+                assigned_role_ids = [r[0] for r in q.all()]
+                if not assigned_role_ids:
+                    # fallback to users:read
+                    q2 = (
+                        db.query(Role.id)
+                        .join(RolePermission, RolePermission.role_id == Role.id)
+                        .join(Permission, Permission.id == RolePermission.permission_id)
+                        .filter(Permission.permission_name == "users:read", Permission.status == "Active", Role.status == "Active")
+                    )
+                    assigned_role_ids = [r[0] for r in q2.all()]
+            except Exception:
+                assigned_role_ids = []
+
+            today_str = utcnow().strftime("%Y%m%d")
+            t_prefix = f"TASK-{today_str}"
+            t_count = db.query(OperationTask).filter(OperationTask.task_number.like(f"{t_prefix}%")).count()
+            task_number = f"{t_prefix}-{t_count + 1:04d}"
+            # OTMS uses PWR-derived ticket, HCA uses request_number
+            task = OperationTask(
+                task_number=task_number,
+                task_type="PASSWORD_RESET_REQUEST",
+                ticket_number=reset_request.request_number,
+                operation_code="PASSWORD_RESET",
+                operation_type_code="PASSWORD_RESET",
+                location_code="",
+                raised_by_user_id=user.id,
+                status="Pending",
+                priority="High",
+                remarks=reset_request.reason or f"Password reset requested for {user.username}",
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+            db.add(task)
+            db.flush()
+            # link task to request
+            reset_request.task_id = task.id
+            # create assignment rows for visibility
+            if assigned_role_ids:
+                from app.models import OperationTaskRole
+                for rid in assigned_role_ids:
+                    db.add(OperationTaskRole(task_id=task.id, role_id=rid))
+            # task event
+            db.add(
+                OperationTaskEvent(
+                    task_id=task.id,
+                    event_type="Created",
+                    new_status="Pending",
+                    actor_user_id=user.id,
+                    actor_display=display_name(user),
+                    notes=reset_request.reason or "Password reset requested",
+                    created_at=utcnow(),
+                )
+            )
+        except Exception:
+            # Task creation is best-effort; don't fail the reset request if it errors
+            pass
         create_audit_log(
             db,
             module_name="Authentication",
@@ -816,6 +905,33 @@ def resolve_password_reset_request(
         remarks=remarks or f"Password reset request {decision.lower()}",
         details_summary=f"request_number={reset_req.request_number}; username={reset_req.username}; decision={decision}",
     )
+    # Also close linked Task Manager task if present (OTMS parity)
+    if reset_req.task_id:
+        try:
+            from app.models import OperationTask, OperationTaskEvent
+            task = db.get(OperationTask, reset_req.task_id)
+            if task and task.status in ("Pending", "In Progress"):
+                old_status = task.status
+                task.status = "Closed" if decision in ("Approved", "Resolved") else "Rejected"
+                task.action_taken = "Password Reset Completed" if decision in ("Approved", "Resolved") else "Password Reset Rejected"
+                task.acted_by_user_id = actor.id
+                task.acted_at = utcnow()
+                task.remarks = remarks or task.remarks
+                task.updated_at = utcnow()
+                db.add(
+                    OperationTaskEvent(
+                        task_id=task.id,
+                        event_type=task.action_taken,
+                        old_status=old_status,
+                        new_status=task.status,
+                        actor_user_id=actor.id,
+                        actor_display=display_name(actor),
+                        notes=remarks or f"Password reset {decision}",
+                        created_at=utcnow(),
+                    )
+                )
+        except Exception:
+            pass
     db.commit()
     return {
         "id": reset_req.id,
@@ -825,4 +941,110 @@ def resolve_password_reset_request(
         "resolution_remarks": reset_req.action_notes or "",
         "resolution_notes": reset_req.action_notes or "",
     }
+
+
+@router.post("/users/{user_id}/security/reset-password")
+def admin_reset_user_password(
+    user_id: int,
+    payload: dict,
+    request: Request,
+    actor: User = Depends(require_permission("users:update")),
+    db: Session = Depends(get_db),
+):
+    """
+    OTMS-compatible admin password reset that closes the associated Task Manager task.
+    Frontend Task Manager previously called /users/{id}/security/reset-password without the /auth prefix
+    and received 404. This endpoint provides the correct /auth prefix and closes the PASSWORD_RESET_REQUEST task.
+    """
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    new_password = str(payload.get("new_password") or "").strip()
+    if not new_password:
+        raise HTTPException(status_code=400, detail="new_password is required")
+    validate_password_policy(new_password)
+    target.password_hash = hash_password(new_password)
+    target.password_changed_at = utcnow()
+    force_change = bool(payload.get("force_password_change", True))
+    target.force_password_change = True if force_change else False
+    target.failed_login_count = 0
+    target.locked_until = None
+    reset_2fa = bool(payload.get("reset_2fa"))
+    if reset_2fa:
+        target.totp_enabled = False
+        target.totp_secret = None
+        target.totp_confirmed_at = None
+        db.query(UserBackupCode).filter(UserBackupCode.user_id == target.id).delete()
+    target.updated_at = utcnow()
+    remarks = str(payload.get("remarks") or payload.get("reason") or "").strip() or "Password reset by administrator"
+    # Close any pending password reset requests for this user
+    pending_requests = (
+        db.query(PasswordResetRequest)
+        .filter(PasswordResetRequest.user_id == target.id, PasswordResetRequest.status == "Pending")
+        .all()
+    )
+    for req in pending_requests:
+        req.status = "Completed"
+        req.acted_by_user_id = actor.id
+        req.acted_at = utcnow()
+        req.action_notes = remarks
+        if req.task_id:
+            try:
+                from app.models import OperationTask, OperationTaskEvent
+                task = db.get(OperationTask, req.task_id)
+                if task and task.status in ("Pending", "In Progress"):
+                    old_status = task.status
+                    task.status = "Closed"
+                    task.action_taken = "Password Reset Completed"
+                    task.acted_by_user_id = actor.id
+                    task.acted_at = utcnow()
+                    task.remarks = remarks
+                    task.updated_at = utcnow()
+                    db.add(
+                        OperationTaskEvent(
+                            task_id=task.id,
+                            event_type="Password Reset Completed",
+                            old_status=old_status,
+                            new_status=task.status,
+                            actor_user_id=actor.id,
+                            actor_display=display_name(actor),
+                            notes=remarks,
+                            created_at=utcnow(),
+                        )
+                    )
+                    create_audit_log(
+                        db,
+                        module_name="Operation Task",
+                        action="Close Password Reset Task",
+                        category="Workflow",
+                        current_user=actor,
+                        entity_type="OperationTask",
+                        entity_id=task.id,
+                        entity_label=task.task_number,
+                        old_status=old_status,
+                        new_status=task.status,
+                        request=request,
+                        remarks=remarks,
+                        details_summary=f"request_number={req.request_number}; target_user={target.username}",
+                    )
+            except Exception:
+                pass
+    create_audit_log(
+        db,
+        module_name="Profile & Security",
+        action="Admin Reset User Password",
+        category="Security",
+        current_user=actor,
+        entity_type="User",
+        entity_id=target.id,
+        entity_label=display_name(target),
+        old_status=None,
+        new_status=None,
+        request=request,
+        remarks=remarks,
+        details_summary=f"username={target.username}; force_password_change={target.force_password_change}; reset_2fa={reset_2fa}",
+        status_code=200,
+    )
+    db.commit()
+    return {"message": "Password reset successfully", "user_id": target.id, "username": target.username}
 
